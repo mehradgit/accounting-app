@@ -10,8 +10,7 @@ import {
   Badge,
   Spinner,
 } from "react-bootstrap";
-// فرض بر این است که این کامپوننت به درستی فراخوانی شده است
-import PersianDatePicker from "../ui/PersianDatePicker"; 
+import PersianDatePicker from "../ui/PersianDatePicker";
 
 // --- توابع کمکی برای اعداد و فرمت دهی ---
 const toEnglishDigits = (str) => {
@@ -28,47 +27,43 @@ const formatNumber = (num) => {
   return new Intl.NumberFormat("fa-IR").format(parsedNum);
 };
 
-// --- توابع کمکی برای نمایش حساب‌ها (در بیرون از کامپوننت اصلی) ---
-const getAccountCode = (account) => (account ? account.code : "");
-const getAccountName = (account) => (account ? account.name : "");
-
 export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   // داده‌های اولیه سرور
   const [persons, setPersons] = useState([]);
-  const [accounts, setAccounts] = useState([]); // حساب‌های معین
   const [detailAccounts, setDetailAccounts] = useState([]); // حساب‌های تفصیلی
   const [bankDetailAccounts, setBankDetailAccounts] = useState([]); // تفصیلی‌های بانکی
   const [expenseDetailAccounts, setExpenseDetailAccounts] = useState([]); // تفصیلی‌های هزینه
-  // این آیتم در کد قبلی تعریف نشده بود اما برای فیلتر کردن موجودی کالا نیاز است
-  const [inventoryDetailAccounts, setInventoryDetailAccounts] = useState([]); 
+  const [inventoryDetailAccounts, setInventoryDetailAccounts] = useState([]); // موجودی کالا
 
   // استیت برای نمایش مبلغ با فرمت جداکننده
   const [displayAmount, setDisplayAmount] = useState(initialData.amount ? formatNumber(initialData.amount) : "");
 
+  // استیت برای ذخیره اطلاعات بانک و صادرکننده از حساب تفصیلی انتخاب شده
+  const [selectedBankInfo, setSelectedBankInfo] = useState(null);
+  const [selectedDrawerInfo, setSelectedDrawerInfo] = useState(null);
+
   // حفظ ساختار داده‌های فرم
   const [formData, setFormData] = useState({
     chequeNumber: initialData.chequeNumber || "",
-    bankName: initialData.bankName || "",
-    branchName: initialData.branchName || "",
     amount: initialData.amount || "",
     issueDate: initialData.issueDate || new Date().toISOString().split("T")[0],
     dueDate: initialData.dueDate || "",
-    drawer: initialData.drawer || "",
-    payee: initialData.payee || "",
     type: initialData.type || "payable",
     description: initialData.description || "",
     personId: initialData.personId || "",
-    drawerAccountId: initialData.drawerAccountId || "",
-    payeeAccountId: initialData.payeeAccountId || "",
-    drawerDetailAccountId: initialData.drawerDetailAccountId || "",
-    payeeDetailAccountId: initialData.payeeDetailAccountId || "",
-    bankAccountId: initialData.bankAccountId || "", // حساب بانک برای وصول (فیلد تفصیلی)
-    expenseAccountId: initialData.expenseAccountId || "", // حساب هزینه (فیلد تفصیلی)
+    
+    // حساب‌های تفصیلی - اجباری
+    drawerDetailAccountId: initialData.drawerDetailAccountId || "", // صادرکننده (برای دریافتنی)
+    payeeDetailAccountId: initialData.payeeDetailAccountId || "", // گیرنده (برای پرداختنی)
+    bankDetailAccountId: initialData.bankDetailAccountId || "", // حساب بانک
+    
+    // حساب هزینه (فقط برای پرداختنی بابت هزینه)
+    expenseDetailAccountId: initialData.expenseDetailAccountId || "",
+    
     issueReason: initialData.issueReason || "settlement",
-    accountType: initialData.drawerDetailAccountId || initialData.payeeDetailAccountId ? "detailAccount" : "subAccount"
   });
 
   // تجمیع توابع fetch
@@ -76,18 +71,61 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
     fetchInitialData();
   }, []);
 
+  useEffect(() => {
+    // وقتی حساب بانک انتخاب شد، اطلاعات بانک را استخراج کن
+    if (formData.bankDetailAccountId) {
+      const selectedBank = bankDetailAccounts.find(
+        acc => acc.id === parseInt(formData.bankDetailAccountId)
+      );
+      if (selectedBank) {
+        // استخراج نام بانک از نام حساب تفصیلی (مثلاً "بانک ملی - شعبه مرکزی")
+        setSelectedBankInfo({
+          name: selectedBank.name,
+          // می‌توانید منطق پیچیده‌تری برای استخراج شعبه اضافه کنید
+          branch: selectedBank.name.includes('-') 
+            ? selectedBank.name.split('-')[1]?.trim() 
+            : 'مرکزی'
+        });
+      } else {
+        setSelectedBankInfo(null);
+      }
+    } else {
+      setSelectedBankInfo(null);
+    }
+  }, [formData.bankDetailAccountId, bankDetailAccounts]);
+
+  useEffect(() => {
+    // وقتی حساب صادرکننده انتخاب شد، اطلاعات صادرکننده را استخراج کن
+    if (formData.type === "receivable" && formData.drawerDetailAccountId) {
+      const selectedDrawer = detailAccounts.find(
+        acc => acc.id === parseInt(formData.drawerDetailAccountId)
+      );
+      if (selectedDrawer) {
+        setSelectedDrawerInfo({
+          name: selectedDrawer.person?.name || selectedDrawer.name,
+          personId: selectedDrawer.person?.id || null
+        });
+        
+        // اگر حساب تفصیلی مربوط به یک شخص است، personId را هم ست کن
+        if (selectedDrawer.person?.id) {
+          setFormData(prev => ({ ...prev, personId: selectedDrawer.person.id }));
+        }
+      } else {
+        setSelectedDrawerInfo(null);
+      }
+    } else {
+      setSelectedDrawerInfo(null);
+    }
+  }, [formData.drawerDetailAccountId, formData.type, detailAccounts]);
+
   const fetchInitialData = async () => {
     try {
-      const [personsRes, accountsRes, detailAccountsRes] = await Promise.all([
+      const [personsRes, detailAccountsRes] = await Promise.all([
         fetch("/api/persons"),
-        fetch("/api/accounts"),
-        fetch("/api/detail-accounts"),
+        fetch("/api/detail-accounts?include=person"),
       ]);
 
       if (personsRes.ok) setPersons(await personsRes.json());
-      if (accountsRes.ok) {
-        setAccounts(await accountsRes.json());
-      }
       if (detailAccountsRes.ok) {
         const allDetailAccounts = await detailAccountsRes.json();
         setDetailAccounts(allDetailAccounts);
@@ -145,26 +183,13 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
     if (error) setError("");
   };
 
-  // هندلر تغییر نوع حساب
-  const handleAccountTypeChange = (value) => {
-    setFormData(prev => ({
-      ...prev,
-      accountType: value,
-      // پاک کردن حساب‌های قبلی هنگام تغییر نوع
-      drawerAccountId: "",
-      payeeAccountId: "",
-      drawerDetailAccountId: "",
-      payeeDetailAccountId: ""
-    }));
-  };
-
   // هندلر تغییر علت صدور
   const handleIssueReasonChange = (value) => {
     setFormData(prev => ({
       ...prev,
       issueReason: value,
       // پاک کردن حساب هزینه هنگام تغییر علت، مگر اینکه دلیل expense باشد
-      expenseAccountId: value === 'settlement' ? "" : prev.expenseAccountId
+      expenseDetailAccountId: value === 'expense' ? prev.expenseDetailAccountId : ""
     }));
   };
 
@@ -176,12 +201,10 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
     try {
       // اعتبارسنجی داده‌های اجباری پایه
       if (!formData.chequeNumber?.trim() || 
-          !formData.bankName?.trim() || 
           !formData.amount || 
           parseFloat(formData.amount) <= 0 || 
           !formData.issueDate || 
-          !formData.dueDate || 
-          !formData.drawer?.trim()) {
+          !formData.dueDate) {
         throw new Error("پر کردن فیلدهای ستاره‌دار الزامی است و مبلغ باید بزرگتر از صفر باشد.");
       }
 
@@ -194,85 +217,89 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
 
       // اعتبارسنجی نوع چک و حساب‌های مرتبط
       if (formData.type === "receivable") {
-        const requiredAccountId = formData.accountType === "subAccount" ? formData.drawerAccountId : formData.drawerDetailAccountId;
-        if (!requiredAccountId) {
-          throw new Error(`برای چک دریافتنی، انتخاب حساب ${formData.accountType === "subAccount" ? "معین" : "تفصیلی"} صادرکننده الزامی است`);
+        // چک دریافتنی
+        if (!formData.drawerDetailAccountId) {
+          throw new Error("برای چک دریافتنی، انتخاب حساب تفصیلی صادرکننده الزامی است");
         }
       } else if (formData.type === "payable") {
-        // اعتبارسنجی گیرنده برای چک پرداختنی
-        if (!formData.payee?.trim()) {
-          throw new Error("پر کردن فیلد گیرنده الزامی است.");
+        // چک پرداختنی
+        if (!formData.payeeDetailAccountId) {
+          throw new Error("برای چک پرداختنی، انتخاب حساب تفصیلی گیرنده الزامی است");
         }
-
-        // اعتبارسنجی حساب گیرنده
-        const requiredAccountId = formData.accountType === "subAccount" ? formData.payeeAccountId : formData.payeeDetailAccountId;
-        if (!requiredAccountId) {
-          throw new Error(`برای چک پرداختنی، انتخاب حساب ${formData.accountType === "subAccount" ? "معین" : "تفصیلی"} گیرنده الزامی است`);
-        }
-
-        // اعتبارسنجی حساب بانک برای وصول
-        if (!formData.bankAccountId) {
+        if (!formData.bankDetailAccountId) {
           throw new Error("انتخاب حساب بانک برای وصول الزامی است");
         }
-
         // اعتبارسنجی حساب هزینه برای حالت هزینه/خرید
-        if (formData.issueReason === "expense" && !formData.expenseAccountId) {
+        if (formData.issueReason === "expense" && !formData.expenseDetailAccountId) {
           throw new Error("برای صدور چک بابت هزینه/خرید، انتخاب حساب هزینه الزامی است");
         }
       }
 
-      // ساخت داده‌های ارسالی به صورت تمیز و کنترل شده
+      // ساخت داده‌های ارسالی
       const submitData = {
         // اطلاعات پایه چک
         chequeNumber: formData.chequeNumber.trim(),
-        bankName: formData.bankName.trim(),
-        branchName: formData.branchName?.trim() || null,
         amount: parseFloat(formData.amount),
         issueDate: new Date(formData.issueDate).toISOString(),
         dueDate: new Date(formData.dueDate).toISOString(),
-        drawer: formData.drawer.trim(),
-        payee: formData.payee?.trim() || null,
         type: formData.type,
         description: formData.description?.trim() || null,
         issueReason: formData.issueReason,
         status: 'pending'
       };
 
-      // اضافه کردن ارتباط‌های اختیاری فقط اگر مقدار معتبر دارند
+      // استخراج نام بانک و صادرکننده از حساب‌های تفصیلی
+      if (formData.bankDetailAccountId) {
+        const selectedBank = bankDetailAccounts.find(
+          acc => acc.id === parseInt(formData.bankDetailAccountId)
+        );
+        if (selectedBank) {
+          // نام بانک را از نام حساب تفصیلی استخراج کن
+          const bankName = selectedBank.name.split('-')[0]?.trim() || selectedBank.name;
+          submitData.bankName = bankName;
+          submitData.branchName = selectedBank.name.includes('-') 
+            ? selectedBank.name.split('-')[1]?.trim() 
+            : 'مرکزی';
+        }
+      }
+
+      if (formData.type === "receivable" && formData.drawerDetailAccountId) {
+        const selectedDrawer = detailAccounts.find(
+          acc => acc.id === parseInt(formData.drawerDetailAccountId)
+        );
+        if (selectedDrawer) {
+          submitData.drawer = selectedDrawer.person?.name || selectedDrawer.name;
+        }
+      }
+
+      if (formData.type === "payable" && formData.payeeDetailAccountId) {
+        const selectedPayee = detailAccounts.find(
+          acc => acc.id === parseInt(formData.payeeDetailAccountId)
+        );
+        if (selectedPayee) {
+          submitData.payee = selectedPayee.person?.name || selectedPayee.name;
+        }
+      }
+
+      // اضافه کردن ارتباط‌های حساب تفصیلی
+      if (formData.drawerDetailAccountId) {
+        submitData.drawerDetailAccountId = parseInt(formData.drawerDetailAccountId);
+      }
+      if (formData.payeeDetailAccountId) {
+        submitData.payeeDetailAccountId = parseInt(formData.payeeDetailAccountId);
+      }
+      if (formData.bankDetailAccountId) {
+        submitData.bankDetailAccountId = parseInt(formData.bankDetailAccountId);
+      }
+      if (formData.expenseDetailAccountId) {
+        submitData.expenseDetailAccountId = parseInt(formData.expenseDetailAccountId);
+      }
+
+      // اضافه کردن شخص مرتبط اگر وجود دارد
       if (formData.personId && formData.personId !== "") {
         submitData.personId = parseInt(formData.personId);
       }
-      
-      // اضافه کردن حساب بانک برای وصول (فقط برای چک پرداختنی)
-      if (formData.type === "payable" && formData.bankAccountId) {
-        submitData.bankDetailAccountId = parseInt(formData.bankAccountId);
-      }
-      
-      // اضافه کردن حساب هزینه (فقط برای چک پرداختنی بابت هزینه)
-      if (formData.type === "payable" && formData.issueReason === "expense" && formData.expenseAccountId) {
-        submitData.expenseDetailAccountId = parseInt(formData.expenseAccountId);
-      }
 
-      // مدیریت حساب‌ها بر اساس نوع حساب انتخاب شده
-      if (formData.accountType === "subAccount") {
-        // استفاده از حساب‌های معین
-        if (formData.type === "receivable" && formData.drawerAccountId) {
-          submitData.drawerAccountId = parseInt(formData.drawerAccountId);
-        }
-        if (formData.type === "payable" && formData.payeeAccountId) {
-          submitData.payeeAccountId = parseInt(formData.payeeAccountId);
-        }
-      } else {
-        // استفاده از حساب‌های تفصیلی
-        if (formData.type === "receivable" && formData.drawerDetailAccountId) {
-          submitData.drawerDetailAccountId = parseInt(formData.drawerDetailAccountId);
-        }
-        if (formData.type === "payable" && formData.payeeDetailAccountId) {
-          submitData.payeeDetailAccountId = parseInt(formData.payeeDetailAccountId);
-        }
-      }
-      // نکته: حساب‌های Drawer/Payee توسط منطق بالا مدیریت می‌شوند و دیگر با bankAccountId جایگزین نمی‌شوند.
-      
       // لاگ داده‌های ارسالی برای دیباگ
       console.log("📤 ارسال داده‌های چک:", JSON.stringify(submitData, null, 2));
 
@@ -300,8 +327,6 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
       console.log("✅ چک با موفقیت ثبت شد:", responseData);
 
       let successMessage = "";
-      // ... (منطق پیام موفقیت) ...
-      
       if (initialData.id) {
         successMessage = "چک با موفقیت ویرایش شد";
       } else {
@@ -329,7 +354,6 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
       // نمایش خطای کاربرپسند
       let errorMessage = err.message || "خطای ناشناخته در ارتباط با سرور";
       
-      // بهبود پیام‌های خطا
       if (errorMessage.includes("required but not found")) {
         errorMessage = "یکی از حساب‌های انتخاب شده معتبر نیست. لطفاً حساب‌ها را دوباره انتخاب کنید.";
       } else if (errorMessage.includes("unique constraint")) {
@@ -347,17 +371,18 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
   // تابع ریست فرم
   const resetForm = () => {
     setFormData({
-      chequeNumber: "", bankName: "", branchName: "", amount: "",
+      chequeNumber: "", amount: "",
       issueDate: new Date().toISOString().split("T")[0], dueDate: "",
-      drawer: "", payee: "", type: "payable", description: "",
+      type: "payable", description: "",
       personId: "", 
-      drawerAccountId: "", payeeAccountId: "",
       drawerDetailAccountId: "", payeeDetailAccountId: "",
-      bankAccountId: "", expenseAccountId: "",
-      issueReason: "settlement", accountType: "subAccount"
+      bankDetailAccountId: "", expenseDetailAccountId: "",
+      issueReason: "settlement"
     });
     setDisplayAmount(""); 
     setError("");
+    setSelectedBankInfo(null);
+    setSelectedDrawerInfo(null);
   };
 
   // توابع کمکی نمایش
@@ -365,24 +390,13 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
   const getTypeLabel = (type) => (type === "receivable" ? "دریافتنی" : "پرداختنی");
   const getIssueReasonLabel = (reason) => (reason === "settlement" ? "تسویه بدهی" : "هزینه/خرید");
 
-  // تابع واحد برای دریافت اکانت انتخاب شده
-  const getSelectedAccount = (isDrawer) => {
-    const id = isDrawer 
-      ? (formData.accountType === "subAccount" ? formData.drawerAccountId : formData.drawerDetailAccountId)
-      : (formData.accountType === "subAccount" ? formData.payeeAccountId : formData.payeeDetailAccountId);
-      
-    const list = formData.accountType === "subAccount" ? accounts : detailAccounts;
-    return list.find(acc => acc.id === parseInt(id));
-  };
-    
-  const selectedDrawerAccount = getSelectedAccount(true);
-  const selectedPayeeAccount = getSelectedAccount(false);
-  
   // شامل حساب‌های موجودی کالا (کدهای 1-04) و هزینه (کدهای 6)
   const allExpenseAndInventoryAccounts = [...expenseDetailAccounts, ...inventoryDetailAccounts];
 
-  const selectedExpenseAccount = allExpenseAndInventoryAccounts?.find(acc => acc.id === parseInt(formData.expenseAccountId));
-  const selectedBankAccount = bankDetailAccounts?.find(acc => acc.id === parseInt(formData.bankAccountId));
+  const selectedExpenseAccount = allExpenseAndInventoryAccounts?.find(acc => acc.id === parseInt(formData.expenseDetailAccountId));
+  const selectedBankAccount = bankDetailAccounts?.find(acc => acc.id === parseInt(formData.bankDetailAccountId));
+  const selectedDrawerAccount = detailAccounts?.find(acc => acc.id === parseInt(formData.drawerDetailAccountId));
+  const selectedPayeeAccount = detailAccounts?.find(acc => acc.id === parseInt(formData.payeeDetailAccountId));
   
   // تابع انصراف
   const handleCancel = () => {
@@ -452,34 +466,6 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
           <Row>
             <Col md={6}>
               <Form.Group className="mb-3">
-                <Form.Label>نام بانک *</Form.Label>
-                <Form.Control
-                  type="text"
-                  name="bankName"
-                  value={formData.bankName}
-                  onChange={handleChange}
-                  required
-                  placeholder="مثال: ملی، ملت، صادرات"
-                />
-              </Form.Group>
-            </Col>
-            <Col md={6}>
-              <Form.Group className="mb-3">
-                <Form.Label>شعبه بانک</Form.Label>
-                <Form.Control
-                  type="text"
-                  name="branchName"
-                  value={formData.branchName}
-                  onChange={handleChange}
-                  placeholder="مثال: شعبه مرکزی"
-                />
-              </Form.Group>
-            </Col>
-          </Row>
-          
-          <Row>
-            <Col md={6}>
-              <Form.Group className="mb-3">
                 <Form.Label>مبلغ چک (ریال) *</Form.Label>
                 <Form.Control
                   type="text"
@@ -493,159 +479,94 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
                 />
               </Form.Group>
             </Col>
-            <Col md={6}>
-              <Form.Group className="mb-3">
-                <Form.Label>صادرکننده *</Form.Label>
-                <Form.Control
-                  type="text"
-                  name="drawer"
-                  value={formData.drawer}
-                  onChange={handleChange}
-                  required
-                  placeholder="نام صادرکننده چک"
-                />
-              </Form.Group>
-            </Col>
           </Row>
 
-          {/* برای چک پرداختنی: علت صدور و گیرنده */}
+          {/* برای چک پرداختنی: علت صدور */}
           {formData.type === "payable" && (
-            <>
-              <Row>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>گیرنده چک *</Form.Label>
-                    <Form.Control
-                      type="text"
-                      name="payee"
-                      value={formData.payee}
-                      onChange={handleChange}
-                      required
-                      placeholder="نام گیرنده چک"
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>علت صدور *</Form.Label>
-                    <Form.Select
-                      name="issueReason"
-                      value={formData.issueReason}
-                      onChange={(e) => handleIssueReasonChange(e.target.value)}
-                      required
-                    >
-                      <option value="settlement">تسویه بدهی موجود</option>
-                      <option value="expense">هزینه/خرید جدید</option>
-                    </Form.Select>
-                    <Form.Text className="text-muted">
-                      {formData.issueReason === 'settlement' 
-                        ? 'برای پرداخت بدهی قبلی به طرف مقابل'
-                        : 'برای پرداخت هزینه یا خرید جدید'
-                      }
-                    </Form.Text>
-                  </Form.Group>
-                </Col>
-              </Row>
-
-              {/* حساب هزینه/موجودی کالا برای حالت هزینه/خرید */}
-              {formData.issueReason === "expense" && (
+            <Row>
+              <Col md={12}>
                 <Form.Group className="mb-3">
-                  <Form.Label>حساب هزینه/خرید *</Form.Label>
+                  <Form.Label>علت صدور *</Form.Label>
                   <Form.Select
-                    name="expenseAccountId"
-                    value={formData.expenseAccountId}
-                    onChange={handleChange}
+                    name="issueReason"
+                    value={formData.issueReason}
+                    onChange={(e) => handleIssueReasonChange(e.target.value)}
                     required
                   >
-                    <option value="">انتخاب حساب هزینه/خرید (تفصیلی)</option>
-                    {allExpenseAndInventoryAccounts && allExpenseAndInventoryAccounts.length > 0 ? (
-                      allExpenseAndInventoryAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.code} - {account.name}
-                          {account.subAccount && ` (${account.subAccount.name})`}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="" disabled>
-                        ⚠️ هیچ حساب تفصیلی هزینه/موجودی کالا یافت نشد
-                      </option>
-                    )}
+                    <option value="settlement">تسویه بدهی موجود</option>
+                    <option value="expense">هزینه/خرید جدید</option>
                   </Form.Select>
-                  {selectedExpenseAccount && (
-                    <Form.Text className="text-success">
-                      ✅ حساب انتخاب شده: {getAccountCode(selectedExpenseAccount)} - {getAccountName(selectedExpenseAccount)}
-                      {selectedExpenseAccount.subAccount && ` (معین: ${selectedExpenseAccount.subAccount.code})`}
-                    </Form.Text>
-                  )}
                   <Form.Text className="text-muted">
-                    حساب‌های تفصیلی هزینه (شروع با 6) یا موجودی کالا (شروع با 1-04)
+                    {formData.issueReason === 'settlement' 
+                      ? 'برای پرداخت بدهی قبلی به طرف مقابل'
+                      : 'برای پرداخت هزینه یا خرید جدید'
+                    }
                   </Form.Text>
                 </Form.Group>
-              )}
-            </>
+              </Col>
+            </Row>
           )}
 
-          {/* انتخاب نوع حساب (معین یا تفصیلی) */}
-          <Form.Group className="mb-3">
-            <Form.Label>نوع حساب *</Form.Label>
-            <Form.Select
-              name="accountType"
-              value={formData.accountType}
-              onChange={(e) => handleAccountTypeChange(e.target.value)}
-              required
-            >
-              <option value="subAccount">حساب معین</option>
-              <option value="detailAccount">حساب تفصیلی</option>
-            </Form.Select>
-            <Form.Text className="text-muted">
-              {formData.accountType === "subAccount"
-                ? "انتخاب از بین حساب‌های معین"
-                : "انتخاب از بین حساب‌های تفصیلی (اشخاص، بانک‌ها و غیره)"}
-            </Form.Text>
-          </Form.Group>
+          {/* حساب هزینه/موجودی کالا برای حالت هزینه/خرید */}
+          {formData.type === "payable" && formData.issueReason === "expense" && (
+            <Form.Group className="mb-3">
+              <Form.Label>حساب هزینه/خرید *</Form.Label>
+              <Form.Select
+                name="expenseDetailAccountId"
+                value={formData.expenseDetailAccountId}
+                onChange={handleChange}
+                required
+              >
+                <option value="">انتخاب حساب هزینه/خرید (تفصیلی)</option>
+                {allExpenseAndInventoryAccounts && allExpenseAndInventoryAccounts.length > 0 ? (
+                  allExpenseAndInventoryAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.code} - {account.name}
+                      {account.subAccount && ` (${account.subAccount.name})`}
+                    </option>
+                  ))
+                ) : (
+                  <option value="" disabled>
+                    ⚠️ هیچ حساب تفصیلی هزینه/موجودی کالا یافت نشد
+                  </option>
+                )}
+              </Form.Select>
+              {selectedExpenseAccount && (
+                <Form.Text className="text-success">
+                  ✅ حساب انتخاب شده: {selectedExpenseAccount.code} - {selectedExpenseAccount.name}
+                  {selectedExpenseAccount.subAccount && ` (معین: ${selectedExpenseAccount.subAccount.code})`}
+                </Form.Text>
+              )}
+              <Form.Text className="text-muted">
+                حساب‌های تفصیلی هزینه (شروع با 6) یا موجودی کالا (شروع با 1-04)
+              </Form.Text>
+            </Form.Group>
+          )}
 
           {/* انتخاب حساب صادرکننده برای چک دریافتنی */}
           {formData.type === "receivable" && (
             <Form.Group className="mb-3">
               <Form.Label>
-                حساب صادرکننده *
-                <small className="text-muted me-2">
-                  ({formData.accountType === "subAccount" ? "معین" : "تفصیلی"})
-                </small>
+                حساب صادرکننده *<small className="text-muted me-2">(تفصیلی)</small>
               </Form.Label>
-              {formData.accountType === "subAccount" ? (
-                <Form.Select
-                  name="drawerAccountId"
-                  value={formData.drawerAccountId}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">انتخاب حساب معین صادرکننده</option>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.code} - {account.name} ({account.category?.name})
-                    </option>
-                  ))}
-                </Form.Select>
-              ) : (
-                <Form.Select
-                  name="drawerDetailAccountId"
-                  value={formData.drawerDetailAccountId}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">انتخاب حساب تفصیلی صادرکننده</option>
-                  {detailAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.code} - {account.name}
-                      {account.person && ` (${account.person.name})`}
-                    </option>
-                  ))}
-                </Form.Select>
-              )}
+              <Form.Select
+                name="drawerDetailAccountId"
+                value={formData.drawerDetailAccountId}
+                onChange={handleChange}
+                required
+              >
+                <option value="">انتخاب حساب تفصیلی صادرکننده</option>
+                {detailAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.code} - {account.name}
+                    {account.person && ` (${account.person.name})`}
+                  </option>
+                ))}
+              </Form.Select>
               {selectedDrawerAccount && (
                 <Form.Text className="text-success">
-                  ✅ حساب انتخاب شده: {getAccountCode(selectedDrawerAccount)} - {getAccountName(selectedDrawerAccount)}
+                  ✅ حساب انتخاب شده: {selectedDrawerAccount.code} - {selectedDrawerAccount.name}
+                  {selectedDrawerInfo && ` (نام صادرکننده: ${selectedDrawerInfo.name})`}
                 </Form.Text>
               )}
             </Form.Group>
@@ -655,44 +576,25 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
           {formData.type === "payable" && (
             <Form.Group className="mb-3">
               <Form.Label>
-                حساب گیرنده *
-                <small className="text-muted me-2">
-                  ({formData.accountType === "subAccount" ? "معین" : "تفصیلی"})
-                </small>
+                حساب گیرنده *<small className="text-muted me-2">(تفصیلی)</small>
               </Form.Label>
-              {formData.accountType === "subAccount" ? (
-                <Form.Select
-                  name="payeeAccountId"
-                  value={formData.payeeAccountId}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">انتخاب حساب معین گیرنده</option>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.code} - {account.name} ({account.category?.name})
-                    </option>
-                  ))}
-                </Form.Select>
-              ) : (
-                <Form.Select
-                  name="payeeDetailAccountId"
-                  value={formData.payeeDetailAccountId}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">انتخاب حساب تفصیلی گیرنده</option>
-                  {detailAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.code} - {account.name}
-                      {account.person && ` (${account.person.name})`}
-                    </option>
-                  ))}
-                </Form.Select>
-              )}
+              <Form.Select
+                name="payeeDetailAccountId"
+                value={formData.payeeDetailAccountId}
+                onChange={handleChange}
+                required
+              >
+                <option value="">انتخاب حساب تفصیلی گیرنده</option>
+                {detailAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.code} - {account.name}
+                    {account.person && ` (${account.person.name})`}
+                  </option>
+                ))}
+              </Form.Select>
               {selectedPayeeAccount && (
                 <Form.Text className="text-success">
-                  ✅ حساب انتخاب شده: {getAccountCode(selectedPayeeAccount)} - {getAccountName(selectedPayeeAccount)}
+                  ✅ حساب انتخاب شده: {selectedPayeeAccount.code} - {selectedPayeeAccount.name}
                 </Form.Text>
               )}
             </Form.Group>
@@ -703,8 +605,8 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
             <Form.Group className="mb-3">
               <Form.Label>حساب بانک برای وصول *</Form.Label>
               <Form.Select
-                name="bankAccountId"
-                value={formData.bankAccountId}
+                name="bankDetailAccountId"
+                value={formData.bankDetailAccountId}
                 onChange={handleChange}
                 required
               >
@@ -724,8 +626,8 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
               </Form.Select>
               {selectedBankAccount && (
                 <Form.Text className="text-success">
-                  ✅ حساب بانک انتخاب شده: {getAccountCode(selectedBankAccount)} - {getAccountName(selectedBankAccount)}
-                  {selectedBankAccount.subAccount && ` (معین: ${selectedBankAccount.subAccount.code} - ${selectedBankAccount.subAccount.name})`}
+                  ✅ حساب بانک انتخاب شده: {selectedBankAccount.code} - {selectedBankAccount.name}
+                  {selectedBankInfo && ` (نام بانک: ${selectedBankInfo.name} - شعبه: ${selectedBankInfo.branch})`}
                 </Form.Text>
               )}
               <Form.Text className="text-muted">
@@ -764,28 +666,6 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
           </Row>
 
           <Form.Group className="mb-3">
-            <Form.Label>شخص مرتبط</Form.Label>
-            <Form.Select
-              name="personId"
-              value={formData.personId}
-              onChange={handleChange}
-            >
-              <option value="">بدون شخص</option>
-              {persons.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name} (
-                  {person.type === "customer"
-                    ? "مشتری"
-                    : person.type === "supplier"
-                    ? "تأمین کننده"
-                    : "پرسنل"}
-                  ){person.detailAccount && ` - ${person.detailAccount.code}`}
-                </option>
-              ))}
-            </Form.Select>
-          </Form.Group>
-
-          <Form.Group className="mb-3">
             <Form.Label>شرح</Form.Label>
             <Form.Control
               as="textarea"
@@ -800,25 +680,23 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
       </Card>
 
       {/* پیش‌نمایش سند حسابداری */}
-      {(formData.amount && (
-        formData.type === "receivable" && selectedDrawerAccount ? (
-          <ChequeVoucherPreview 
-            type="receivable"
-            amount={displayAmount}
-            drawerAccount={selectedDrawerAccount}
-            accountType={formData.accountType}
-          />
-        ) : formData.type === "payable" && selectedPayeeAccount && (
-          <ChequeVoucherPreview 
-            type="payable"
-            amount={displayAmount}
-            payeeAccount={selectedPayeeAccount}
-            expenseAccount={selectedExpenseAccount}
-            issueReason={formData.issueReason}
-            accountType={formData.accountType}
-          />
-        )
-      ))}
+      {(formData.amount && formData.type === "receivable" && selectedDrawerAccount) && (
+        <ChequeVoucherPreview 
+          type="receivable"
+          amount={displayAmount}
+          drawerAccount={selectedDrawerAccount}
+        />
+      )}
+
+      {(formData.amount && formData.type === "payable" && selectedPayeeAccount) && (
+        <ChequeVoucherPreview 
+          type="payable"
+          amount={displayAmount}
+          payeeAccount={selectedPayeeAccount}
+          expenseAccount={selectedExpenseAccount}
+          issueReason={formData.issueReason}
+        />
+      )}
 
       {/* دکمه‌های اقدام */}
       <div className="d-flex gap-2 justify-content-end">
@@ -857,6 +735,7 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
           <li><strong>تسویه بدهی:</strong> وقتی قبلاً به طرف مقابل بدهکار بودید</li>
           <li><strong>هزینه/خرید:</strong> وقتی همزمان با صدور چک، هزینه یا خرید جدید (مانند موجودی کالا) ایجاد می‌شود. در این حالت، **سند حسابداری ۴ ردیفی** ایجاد می‌شود.</li>
           <li>حساب بانک برای وصول چک پرداختنی الزامی است</li>
+          <li>نام بانک و صادرکننده/گیرنده به صورت خودکار از حساب‌های تفصیلی استخراج می‌شود</li>
         </ul>
       </Alert>
     </Form>
@@ -864,11 +743,7 @@ export default function ChequeForm({ initialData = {}, onSuccess, onCancel }) {
 }
 
 // کامپوننت پیش‌نمایش سند حسابداری (با منطق ۴ ردیفی برای هزینه/خرید)
-function ChequeVoucherPreview({ type, amount, drawerAccount, payeeAccount, expenseAccount, issueReason, accountType }) {
-  // توابع کمکی برای نمایش حساب‌ها
-  const getAccountCode = (account) => account ? account.code : "";
-  const getAccountName = (account) => account ? account.name : "";
-
+function ChequeVoucherPreview({ type, amount, drawerAccount, payeeAccount, expenseAccount, issueReason }) {
   // چک دریافتنی (۲ ردیف)
   if (type === "receivable") {
     return (
@@ -896,9 +771,9 @@ function ChequeVoucherPreview({ type, amount, drawerAccount, payeeAccount, expen
                   </td>
                   <td>
                     <Badge bg="info" className="me-2">
-                      {getAccountCode(drawerAccount)}
+                      {drawerAccount.code}
                     </Badge>
-                    {getAccountName(drawerAccount)}
+                    {drawerAccount.name}
                   </td>
                   <td className="text-success fw-bold">{amount}</td>
                 </tr>
@@ -942,15 +817,15 @@ function ChequeVoucherPreview({ type, amount, drawerAccount, payeeAccount, expen
                       <td>۱</td>
                       <td>
                         <Badge bg="danger" className="me-2">
-                          {getAccountCode(expenseAccount)}
+                          {expenseAccount?.code}
                         </Badge>
-                        {getAccountName(expenseAccount)} (هزینه/خرید)
+                        {expenseAccount?.name} (هزینه/خرید)
                       </td>
                       <td>
                         <Badge bg="info" className="me-2">
-                          {getAccountCode(payeeAccount)}
+                          {payeeAccount.code}
                         </Badge>
-                        {getAccountName(payeeAccount)} (بستانکاران تجاری)
+                        {payeeAccount.name} (بستانکاران تجاری)
                       </td>
                       <td className="text-success fw-bold">{amount}</td>
                     </tr>
@@ -959,9 +834,9 @@ function ChequeVoucherPreview({ type, amount, drawerAccount, payeeAccount, expen
                       <td>۲</td>
                       <td>
                         <Badge bg="info" className="me-2">
-                          {getAccountCode(payeeAccount)}
+                          {payeeAccount.code}
                         </Badge>
-                        {getAccountName(payeeAccount)} (بستانکاران تجاری)
+                        {payeeAccount.name} (بستانکاران تجاری)
                       </td>
                       <td>
                         <Badge bg="success" className="me-2">3-01-0001</Badge>
@@ -971,7 +846,7 @@ function ChequeVoucherPreview({ type, amount, drawerAccount, payeeAccount, expen
                     </tr>
                     <tr className="table-secondary">
                         <td colSpan="4" className="text-center text-muted small">
-                            {getAccountName(payeeAccount)} (حساب گیرنده) یکبار بستانکار (ردیف ۱) و یکبار بدهکار (ردیف ۲) شده است.
+                            {payeeAccount.name} (حساب گیرنده) یکبار بستانکار (ردیف ۱) و یکبار بدهکار (ردیف ۲) شده است.
                         </td>
                     </tr>
                   </>
@@ -982,9 +857,9 @@ function ChequeVoucherPreview({ type, amount, drawerAccount, payeeAccount, expen
                       <td>۱</td>
                       <td>
                         <Badge bg="info" className="me-2">
-                          {getAccountCode(payeeAccount)}
+                          {payeeAccount.code}
                         </Badge>
-                        {getAccountName(payeeAccount)} (بستانکاران تجاری)
+                        {payeeAccount.name} (بستانکاران تجاری)
                       </td>
                       <td>
                         <Badge bg="success" className="me-2">3-01-0001</Badge>

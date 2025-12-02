@@ -1,7 +1,7 @@
-// src/app/banks/page.js
+// src/app/banks/page.js - نسخه اصلاح شده
 'use client'
 import { useState, useEffect } from 'react'
-import { Container, Table, Button, Card, Row, Col } from 'react-bootstrap'
+import { Container, Table, Button, Card, Row, Col, Badge, Alert } from 'react-bootstrap'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
@@ -16,6 +16,7 @@ export default function BanksPage() {
 
   const fetchBanks = async () => {
     try {
+      setLoading(true)
       const response = await fetch('/api/banks')
       if (response.ok) {
         const data = await response.json()
@@ -30,7 +31,11 @@ export default function BanksPage() {
     }
   }
 
-  const totalBalance = banks.reduce((sum, bank) => sum + bank.balance, 0)
+  // محاسبه مجموع موجودی‌های واقعی
+  const totalRealBalance = banks.reduce((sum, bank) => sum + (bank.realBalance || 0), 0)
+  
+  // محاسبه مجموع موجودی‌های ذخیره شده
+  const totalStoredBalance = banks.reduce((sum, bank) => sum + (bank.storedBalance || 0), 0)
 
   const handleDelete = async (id, name) => {
     if (window.confirm(`آیا از حذف "${name}" اطمینان دارید؟`)) {
@@ -53,6 +58,12 @@ export default function BanksPage() {
     }
   }
 
+  const formatCurrency = (amount) => {
+    if (amount === null || amount === undefined || isNaN(amount))
+      return '۰ ریال'
+    return Math.abs(amount).toLocaleString('fa-IR') + ' ریال'
+  }
+
   if (loading) {
     return (
       <Container>
@@ -69,7 +80,10 @@ export default function BanksPage() {
   return (
     <Container>
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h1>مدیریت حساب‌های بانکی</h1>
+        <div>
+          <h1 className="mb-1">مدیریت حساب‌های بانکی</h1>
+          <p className="text-muted mb-0">لیست کامل حساب‌های بانکی و موجودی واقعی آن‌ها</p>
+        </div>
         <Link href="/banks/create">
           <Button variant="primary">
             ➕ افزودن حساب بانکی
@@ -79,32 +93,46 @@ export default function BanksPage() {
 
       {/* آمار */}
       <Row className="mb-4">
-        <Col md={4}>
-          <Card className="text-center">
+        <Col md={3}>
+          <Card className="text-center bg-light">
             <Card.Body>
-              <Card.Title>تعداد حساب‌ها</Card.Title>
+              <div className="fs-4 mb-2">🏦</div>
+              <Card.Title className="h6">تعداد حساب‌ها</Card.Title>
               <Card.Text className="h4 text-primary">
                 {banks.length}
               </Card.Text>
             </Card.Body>
           </Card>
         </Col>
-        <Col md={4}>
-          <Card className="text-center">
+        <Col md={3}>
+          <Card className="text-center bg-success text-white">
             <Card.Body>
-              <Card.Title>مجموع موجودی</Card.Title>
-              <Card.Text className="h4 text-success">
-                {totalBalance.toLocaleString('fa-IR')} ریال
+              <div className="fs-4 mb-2">💰</div>
+              <Card.Title className="h6">موجودی واقعی</Card.Title>
+              <Card.Text className="h4">
+                {formatCurrency(totalRealBalance)}
               </Card.Text>
             </Card.Body>
           </Card>
         </Col>
-        <Col md={4}>
-          <Card className="text-center">
+        <Col md={3}>
+          <Card className="text-center bg-info text-white">
             <Card.Body>
-              <Card.Title>میانگین موجودی</Card.Title>
-              <Card.Text className="h4 text-info">
-                {banks.length > 0 ? (totalBalance / banks.length).toLocaleString('fa-IR', {maximumFractionDigits: 0}) : 0} ریال
+              <div className="fs-4 mb-2">💳</div>
+              <Card.Title className="h6">موجودی اولیه</Card.Title>
+              <Card.Text className="h4">
+                {formatCurrency(totalStoredBalance)}
+              </Card.Text>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="text-center bg-warning text-dark">
+            <Card.Body>
+              <div className="fs-4 mb-2">⚖️</div>
+              <Card.Title className="h6">تفاوت موجودی</Card.Title>
+              <Card.Text className="h4">
+                {formatCurrency(totalRealBalance - totalStoredBalance)}
               </Card.Text>
             </Card.Body>
           </Card>
@@ -113,53 +141,129 @@ export default function BanksPage() {
 
       {/* لیست حساب‌های بانکی */}
       <Card>
-        <Card.Body>
+        <Card.Header className="d-flex justify-content-between align-items-center">
+          <h5 className="mb-0">
+            لیست حساب‌های بانکی
+            <Badge bg="secondary" className="ms-2">
+              {banks.length}
+            </Badge>
+          </h5>
+          <Button 
+            variant="outline-secondary" 
+            size="sm"
+            onClick={fetchBanks}
+          >
+            🔄 بروزرسانی
+          </Button>
+        </Card.Header>
+        <Card.Body className="p-0">
           {banks.length > 0 ? (
-            <Table striped bordered hover responsive>
-              <thead>
-                <tr>
-                  <th>نام حساب</th>
-                  <th>شماره حساب</th>
-                  <th>موجودی</th>
-                  <th>تاریخ ایجاد</th>
-                  <th>عملیات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {banks.map(bank => (
-                  <tr key={bank.id}>
-                    <td className="fw-bold">{bank.name}</td>
-                    <td>{bank.accountNumber || '-'}</td>
-                    <td className={`fw-bold ${bank.balance >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {bank.balance.toLocaleString('fa-IR')} ریال
-                    </td>
-                    <td>
-                      {new Date(bank.createdAt).toLocaleDateString('fa-IR')}
-                    </td>
-                    <td>
-                      <div className="d-flex gap-1">
-                        <Button
-                          variant="outline-primary"
-                          size="sm"
-                          onClick={() => router.push(`/banks/${bank.id}`)}
-                        >
-                          مشاهده
-                        </Button>
-                        <Button
-                          variant="outline-danger"
-                          size="sm"
-                          onClick={() => handleDelete(bank.id, bank.name)}
-                        >
-                          حذف
-                        </Button>
-                      </div>
-                    </td>
+            <div className="table-responsive">
+              <Table striped bordered hover className="mb-0">
+                <thead className="table-dark">
+                  <tr>
+                    <th width="250">نام حساب</th>
+                    <th width="120">کد حسابداری</th>
+                    <th width="150">شماره حساب</th>
+                    <th width="150" className="text-center">موجودی اولیه</th>
+                    <th width="150" className="text-center">موجودی واقعی</th>
+                    <th width="150" className="text-center">تفاوت</th>
+                    <th width="120" className="text-center">عملیات</th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
+                </thead>
+                <tbody>
+                  {banks.map(bank => {
+                    const difference = (bank.realBalance || 0) - (bank.storedBalance || 0)
+                    const hasDifference = Math.abs(difference) > 0.01 // حداقل تفاوت
+                    
+                    return (
+                      <tr key={bank.id}>
+                        <td>
+                          <div className="d-flex align-items-center">
+                            <span className="me-2">🏦</span>
+                            <div>
+                              <div className="fw-bold">{bank.name}</div>
+                              {bank.detailAccount && (
+                                <small className="text-muted">
+                                  {bank.detailAccount.name}
+                                </small>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="font-monospace">
+                          {bank.detailAccount ? (
+                            <Badge bg="primary">{bank.detailAccount.code}</Badge>
+                          ) : (
+                            <span className="text-muted">ندارد</span>
+                          )}
+                        </td>
+                        <td>{bank.accountNumber || '-'}</td>
+                        <td className="text-center text-muted">
+                          {formatCurrency(bank.storedBalance || 0)}
+                        </td>
+                        <td 
+                          className={`text-center fw-bold ${
+                            (bank.realBalance || 0) >= 0 ? 'text-success' : 'text-danger'
+                          }`}
+                        >
+                          {formatCurrency(bank.realBalance || 0)}
+                        </td>
+                        <td className="text-center">
+                          {hasDifference ? (
+                            <Badge bg={difference > 0 ? 'success' : 'danger'}>
+                              {difference > 0 ? '+' : ''}{formatCurrency(difference)}
+                            </Badge>
+                          ) : (
+                            <Badge bg="secondary">همسان</Badge>
+                          )}
+                        </td>
+                        <td className="text-center">
+                          <div className="d-flex gap-1 justify-content-center">
+                            <Button
+                              variant="outline-primary"
+                              size="sm"
+                              onClick={() => router.push(`/banks/${bank.id}`)}
+                            >
+                              مشاهده
+                            </Button>
+                            <Button
+                              variant="outline-danger"
+                              size="sm"
+                              onClick={() => handleDelete(bank.id, bank.name)}
+                            >
+                              حذف
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot className="table-active">
+                  <tr>
+                    <td colSpan="3" className="text-end fw-bold">
+                      جمع کل:
+                    </td>
+                    <td className="text-center fw-bold">
+                      {formatCurrency(totalStoredBalance)}
+                    </td>
+                    <td className="text-center fw-bold">
+                      {formatCurrency(totalRealBalance)}
+                    </td>
+                    <td className="text-center fw-bold">
+                      <Badge bg={totalRealBalance >= totalStoredBalance ? 'success' : 'danger'}>
+                        {formatCurrency(totalRealBalance - totalStoredBalance)}
+                      </Badge>
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </Table>
+            </div>
           ) : (
             <div className="text-center py-5">
+              <div className="fs-1 mb-3">🏦</div>
               <h5 className="text-muted">هیچ حساب بانکی ثبت نشده است</h5>
               <p className="text-muted mb-3">
                 برای شروع، اولین حساب بانکی خود را ایجاد کنید.
@@ -173,6 +277,17 @@ export default function BanksPage() {
           )}
         </Card.Body>
       </Card>
+
+      {/* توضیحات */}
+      <Alert variant="info" className="mt-4">
+        <strong>💡 توضیحات:</strong>
+        <ul className="mb-0 mt-2">
+          <li><strong>موجودی اولیه:</strong> مبلغی که هنگام ایجاد حساب بانکی ثبت شده است</li>
+          <li><strong>موجودی واقعی:</strong> مانده حساب بر اساس تمام تراکنش‌های ثبت شده</li>
+          <li><strong>تفاوت:</strong> اختلاف بین موجودی واقعی و موجودی اولیه</li>
+          <li>✅ موجودی واقعی و اولیه معمولاً باید همسان باشند، مگر اینکه تراکنش‌های دیگری ثبت شده باشد</li>
+        </ul>
+      </Alert>
     </Container>
   )
 }
