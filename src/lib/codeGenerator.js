@@ -89,3 +89,41 @@ function getLastChildNumber(childrenCodes) {
 export function formatCodeForDisplay(code) {
   return code
 }
+
+// تولید کد خودکار برای کالا
+export function generateProductCode(categoryCode, lastCode) {
+  if (!lastCode) {
+    return `${categoryCode}-0001`;
+  }
+  
+  const parts = lastCode.split('-');
+  if (parts.length === 2) {
+    const num = parseInt(parts[1]);
+    return `${categoryCode}-${(num + 1).toString().padStart(4, '0')}`;
+  }
+  
+  return generateSequentialCode(lastCode);
+}
+
+// تولید کد خودکار برای انبار
+export function generateWarehouseCode(lastCode) {
+  if (!lastCode) {
+    return 'WH-01';
+  }
+  
+  const parts = lastCode.split('-');
+  if (parts.length === 2) {
+    const num = parseInt(parts[1]);
+    return `WH-${(num + 1).toString().padStart(2, '0')}`;
+  }
+  
+  return generateSequentialCode(lastCode);
+}
+export function generateInventoryDocumentNumber() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  
+  // از شمارنده استفاده کن یا یک شماره ساده بساز
+  return `INV-${year}${month}-${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
+}

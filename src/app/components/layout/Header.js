@@ -1,32 +1,39 @@
-// app/components/layout/Header.jsx
 'use client'
 
-import { Navbar, Nav, Container } from 'react-bootstrap'
+import { useState } from 'react'
 
 export default function Header() {
+  const [user] = useState({
+    name: 'کاربر سیستم',
+    role: 'مدیر'
+  })
+
   return (
-    <Navbar bg="light" expand="lg" className="border-bottom">
-      <Container fluid>
-        <Navbar.Brand href="/" className="fw-bold">
-          🧮 سیستم حسابداری
-        </Navbar.Brand>
-        
-        <Navbar.Toggle aria-controls="basic-navbar-nav" />
-        
-        <Navbar.Collapse id="basic-navbar-nav">
-          <Nav className="me-auto">
-            <Nav.Link href="/dashboard">داشبورد</Nav.Link>
-            <Nav.Link href="/vouchers">اسناد</Nav.Link>
-            <Nav.Link href="/accounts">حساب‌ها</Nav.Link>
-            <Nav.Link href="/reports">گزارش‌ها</Nav.Link>
-          </Nav>
+    <header className="header bg-white shadow-sm border-bottom py-3 px-4">
+      <div className="container-fluid">
+        <div className="d-flex justify-content-between align-items-center">
+          <div>
+            <h4 className="mb-0">سیستم حسابداری و انبارداری</h4>
+            <small className="text-muted">به سیستم خوش آمدید</small>
+          </div>
           
-          <Nav>
-            <Nav.Link href="/profile">پروفایل</Nav.Link>
-            <Nav.Link href="/logout">خروج</Nav.Link>
-          </Nav>
-        </Navbar.Collapse>
-      </Container>
-    </Navbar>
+          <div className="d-flex align-items-center gap-3">
+            <div className="text-end">
+              <div className="fw-medium">{user.name}</div>
+              <small className="text-muted">{user.role}</small>
+            </div>
+            
+            <div className="dropdown">
+              <button 
+                className="btn btn-light rounded-circle d-flex align-items-center justify-content-center"
+                style={{ width: '40px', height: '40px' }}
+              >
+                <span>👤</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
   )
 }

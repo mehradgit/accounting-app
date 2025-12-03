@@ -10,7 +10,7 @@ datasource db {
 }
 
 // ==========================================================
-// مدل‌های اصلی
+// مدل‌های اصلی (حسابداری)
 // ==========================================================
 
 // ۱. حساب کل (AccountCategory)
@@ -18,7 +18,7 @@ model AccountCategory {
   id            Int               @id @default(autoincrement())
   code          String            @unique @db.VarChar(10)
   name          String            @db.VarChar(100)
-  type          AccountType       // دارایی، بدهی، سرمایه، درآمد، هزینه
+  type          AccountType
   parentId      Int?
   parent        AccountCategory?  @relation("CategoryParent", fields: [parentId], references: [id])
   children      AccountCategory[] @relation("CategoryParent")
@@ -39,10 +39,8 @@ model SubAccount {
   
   detailAccounts DetailAccount[]
   voucherItems   VoucherItem[]
-  
-  // روابط چک‌ها
-  drawerCheques  Cheque[]        @relation("ChequeDrawer")  // چک دریافتنی از این حساب صادر شده است
-  payeeCheques   Cheque[]        @relation("ChequePayee")   // چک پرداختنی به این حساب داده شده است
+  drawerCheques  Cheque[]        @relation("ChequeDrawer")
+  payeeCheques   Cheque[]        @relation("ChequePayee")
   
   createdAt      DateTime        @default(now())
   
@@ -58,38 +56,49 @@ model DetailAccount {
   subAccount        SubAccount      @relation(fields: [subAccountId], references: [id])
   balance           Float           @default(0)
   
-  // ارتباط یک به یک با Person
-  person            Person?
+  // ارتباط با Person (رابطه یک به یک اختیاری)
+  person            Person?         @relation("DetailAccountPerson")
   
   // روابط چک‌ها
-  drawerCheques     Cheque[]        @relation("ChequeDrawerDetail")  // تفصیلی صادرکننده
-  payeeCheques      Cheque[]        @relation("ChequePayeeDetail")   // تفصیلی گیرنده
+  drawerCheques     Cheque[]        @relation("ChequeDrawerDetail")
+  payeeCheques      Cheque[]        @relation("ChequePayeeDetail")
+  expenseCheques    Cheque[]        @relation("ChequeExpenseDetail")
+  bankCheques       Cheque[]        @relation("ChequeBankDetail")
   
-  // 🎯 روابط جدید مورد نیاز برای چک
-  expenseCheques    Cheque[]        @relation("ChequeExpenseDetail") // تفصیلی هزینه/خرید
-  bankCheques       Cheque[]        @relation("ChequeBankDetail")    // تفصیلی حساب بانک
-  
+  // روابط حسابداری
   voucherItems      VoucherItem[]
+  
+  // روابط انبارداری
+  products          Product[]       // حساب تفصیلی کالاها
+  warehouses        Warehouse[]     // حساب تفصیلی انبارها
+  banks             Bank[]          // حساب تفصیلی بانک‌ها
+  
   createdAt         DateTime        @default(now())
   
   @@map("detail_accounts")
 }
 
-// ۴. شخص (طرف حساب)
+// ۴. شخص (Person)
 model Person {
   id                Int              @id @default(autoincrement())
   name              String           @db.VarChar(100)
-  type              PersonType       // مشتری، تامین کننده، کارمند
+  type              PersonType
   phone             String?          @db.VarChar(20)
   email             String?          @db.VarChar(100)
   address           String?
   
-  // ارتباط یک به یک با DetailAccount (اختیاری)
+  // ارتباط با حساب تفصیلی (رابطه یک به یک)
+  detailAccount     DetailAccount?   @relation("DetailAccountPerson", fields: [detailAccountId], references: [id])
   detailAccountId   Int?             @unique
-  detailAccount     DetailAccount?   @relation(fields: [detailAccountId], references: [id], onDelete: SetNull)
   
+  // روابط حسابداری
   voucherItems      VoucherItem[]
   cheques           Cheque[]
+  
+  // روابط انبارداری
+  inventoryDocuments InventoryDocument[]
+  inventoryLedgers   InventoryLedger[]
+  
   createdAt         DateTime         @default(now())
   
   @@map("persons")
@@ -102,9 +111,13 @@ model Voucher {
   voucherDate   DateTime
   description   String?
   totalAmount   Float
-  createdBy     Int?          // User ID
+  createdBy     Int?
+  
+  // روابط
   items         VoucherItem[]
   cheques       Cheque[]
+  inventoryDocuments InventoryDocument[]
+  
   createdAt     DateTime      @default(now())
   
   @@map("vouchers")
@@ -125,6 +138,9 @@ model VoucherItem {
   debit             Float          @default(0)
   credit            Float          @default(0)
   
+  // روابط انبارداری
+  inventoryLedgers  InventoryLedger[]
+  
   @@map("voucher_items")
 }
 
@@ -137,35 +153,30 @@ model Cheque {
   amount                 Float
   issueDate              DateTime
   dueDate                DateTime
-  drawer                 String          @db.VarChar(100) // نام صادرکننده
-  payee                  String?         @db.VarChar(100)  // نام گیرنده
-  type                   ChequeType      // دریافتنی یا پرداختنی
+  drawer                 String          @db.VarChar(100)
+  payee                  String?         @db.VarChar(100)
+  type                   ChequeType
   status                 ChequeStatus    @default(pending)
   description            String?
-  issueReason            String?         @db.VarChar(20) // 'settlement' یا 'expense'
+  issueReason            String?         @db.VarChar(20)
 
-  // حساب‌های معین مرتبط (اختیاری)
+  // حساب‌های معین
   drawerAccountId        Int?
   drawerAccount          SubAccount?     @relation("ChequeDrawer", fields: [drawerAccountId], references: [id], onDelete: SetNull)
-  
   payeeAccountId         Int?
   payeeAccount           SubAccount?     @relation("ChequePayee", fields: [payeeAccountId], references: [id], onDelete: SetNull)
 
-  // حساب‌های تفصیلی مرتبط (اختیاری)
+  // حساب‌های تفصیلی
   drawerDetailAccountId  Int?
   drawerDetailAccount    DetailAccount?  @relation("ChequeDrawerDetail", fields: [drawerDetailAccountId], references: [id], onDelete: SetNull)
-  
   payeeDetailAccountId   Int?
   payeeDetailAccount     DetailAccount?  @relation("ChequePayeeDetail", fields: [payeeDetailAccountId], references: [id], onDelete: SetNull)
-  
-  // 🎯 روابط تفصیلی جدید برای منطق حسابداری
   bankDetailAccountId    Int?
-  bankDetailAccount      DetailAccount?  @relation("ChequeBankDetail", fields: [bankDetailAccountId], references: [id], onDelete: SetNull) // حساب بانک برای پیگیری وصول
-  
+  bankDetailAccount      DetailAccount?  @relation("ChequeBankDetail", fields: [bankDetailAccountId], references: [id], onDelete: SetNull)
   expenseDetailAccountId Int?
-  expenseDetailAccount   DetailAccount?  @relation("ChequeExpenseDetail", fields: [expenseDetailAccountId], references: [id], onDelete: SetNull) // حساب هزینه/خرید برای سند ۴ ردیفی
+  expenseDetailAccount   DetailAccount?  @relation("ChequeExpenseDetail", fields: [expenseDetailAccountId], references: [id], onDelete: SetNull)
 
-  // ارتباط با شخص (صادرکننده/گیرنده اصلی از لیست اشخاص)
+  // ارتباط با شخص
   personId               Int?
   person                 Person?         @relation(fields: [personId], references: [id], onDelete: Cascade)
   
@@ -176,19 +187,236 @@ model Cheque {
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
 
-  @@unique([chequeNumber, type]) // شماره چک و نوع آن با هم یکتا هستند
+  @@unique([chequeNumber, type])
   @@map("cheques")
 }
 
-// ۸. بانک (Bank) - صرفاً برای نگهداری اطلاعات کلی بانک‌ها
+// ۸. بانک (Bank)
 model Bank {
   id              Int       @id @default(autoincrement())
   name            String    @db.VarChar(100)
   accountNumber   String?   @db.VarChar(50)
   balance         Float     @default(0)
+  detailAccountId Int?
+  detailAccount   DetailAccount? @relation(fields: [detailAccountId], references: [id])
   createdAt       DateTime  @default(now())
   
   @@map("banks")
+}
+
+// ==========================================================
+// مدل‌های انبارداری (اصلاح شده)
+// ==========================================================
+
+// ۹. گروه کالا (ProductCategory)
+model ProductCategory {
+  id            Int               @id @default(autoincrement())
+  code          String            @unique @db.VarChar(10)
+  name          String            @db.VarChar(100)
+  description   String?
+  parentId      Int?
+  parent        ProductCategory?  @relation("ProductCategoryParent", fields: [parentId], references: [id])
+  children      ProductCategory[] @relation("ProductCategoryParent")
+  products      Product[]
+  createdAt     DateTime          @default(now())
+  
+  @@map("product_categories")
+}
+
+// ۱۰. واحد اندازه‌گیری (Unit)
+model Unit {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique @db.VarChar(10)
+  name        String    @db.VarChar(50)
+  description String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  
+  @@map("units")
+}
+
+// ۱۱. کالا (Product)
+model Product {
+  id              Int               @id @default(autoincrement())
+  code            String            @unique @db.VarChar(20)
+  name            String            @db.VarChar(200)
+  barcode         String?           @db.VarChar(50)
+  categoryId      Int
+  category        ProductCategory   @relation(fields: [categoryId], references: [id])
+  unitId          Int
+  unit            Unit              @relation(fields: [unitId], references: [id])
+  
+  // قیمت‌های پیش فرض
+  defaultPurchasePrice   Float      @default(0)
+  defaultSalePrice       Float      @default(0)
+  defaultWholesalePrice  Float?
+  
+  // محدودیت‌های موجودی
+  minStock        Float             @default(0)
+  maxStock        Float             @default(0)
+  
+  // حساب تفصیلی مربوطه
+  detailAccountId Int?
+  detailAccount   DetailAccount?    @relation(fields: [detailAccountId], references: [id])
+  
+  // روابط
+  priceHistory    ProductPriceHistory[]
+  inventoryLedgers InventoryLedger[]
+  stockItems      StockItem[]
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  @@map("products")
+}
+
+// ۱۲. سابقه قیمت کالا (ProductPriceHistory)
+model ProductPriceHistory {
+  id              Int       @id @default(autoincrement())
+  productId       Int
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  purchasePrice   Float
+  salePrice       Float?
+  wholesalePrice  Float?
+  effectiveDate   DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  
+  @@map("product_price_history")
+}
+
+// ۱۳. انبار (Warehouse)
+model Warehouse {
+  id              Int               @id @default(autoincrement())
+  code            String            @unique @db.VarChar(10)
+  name            String            @db.VarChar(100)
+  address         String?
+  phone           String?           @db.VarChar(20)
+  manager         String?           @db.VarChar(100)
+  description     String?
+  
+  // حساب تفصیلی مربوطه
+  detailAccountId Int?
+  detailAccount   DetailAccount?    @relation(fields: [detailAccountId], references: [id])
+  
+  // روابط
+  stockItems      StockItem[]
+  inventoryLedgers InventoryLedger[]
+  inventoryDocuments InventoryDocument[]
+  
+  createdAt       DateTime          @default(now())
+  
+  @@map("warehouses")
+}
+
+// ۱۴. موجودی کالا در انبار (StockItem)
+model StockItem {
+  id          Int       @id @default(autoincrement())
+  productId   Int
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId Int
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  quantity    Float     @default(0)
+  minStock    Float     @default(0)
+  maxStock    Float     @default(0)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@unique([productId, warehouseId])
+  @@map("stock_items")
+}
+
+// ۱۵. نوع حرکت انبار (InventoryTransactionType)
+model InventoryTransactionType {
+  id              Int               @id @default(autoincrement())
+  code            String            @unique @db.VarChar(10)
+  name            String            @db.VarChar(100)
+  effect          InventoryEffect
+  description     String?
+  inventoryDocuments InventoryDocument[]
+  createdAt       DateTime          @default(now())
+  
+  @@map("inventory_transaction_types")
+}
+
+// ۱۶. سند انبار (InventoryDocument)
+model InventoryDocument {
+  id               Int               @id @default(autoincrement())
+  documentNumber   String            @unique @db.VarChar(20)
+  documentDate     DateTime
+  typeId           Int
+  type             InventoryTransactionType @relation(fields: [typeId], references: [id])
+  warehouseId      Int
+  warehouse        Warehouse         @relation(fields: [warehouseId], references: [id])
+  personId         Int?
+  person           Person?           @relation(fields: [personId], references: [id])
+  voucherId        Int?
+  voucher          Voucher?          @relation(fields: [voucherId], references: [id])
+  
+  referenceNumber  String?           @db.VarChar(50)
+  description      String?
+  totalQuantity    Float             @default(0)
+  totalAmount      Float             @default(0)
+  
+  // روابط
+  ledgerEntries    InventoryLedger[]
+  
+  createdBy        Int?
+  createdAt        DateTime          @default(now())
+  
+  @@map("inventory_documents")
+}
+
+// ۱۷. کاردکس/سابقه کالا (InventoryLedger)
+model InventoryLedger {
+  id                Int               @id @default(autoincrement())
+  documentId        Int
+  document          InventoryDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  productId         Int
+  product           Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId       Int
+  warehouse         Warehouse         @relation(fields: [warehouseId], references: [id])
+  transactionDate   DateTime
+  reference         String?           @db.VarChar(50)
+  
+  // مقادیر
+  quantityIn        Float             @default(0)
+  quantityOut       Float             @default(0)
+  unitPrice         Float             @default(0)
+  totalPrice        Float             @default(0)
+  
+  // موجودی انباشته
+  balanceQuantity   Float             @default(0)
+  balanceValue      Float             @default(0)
+  
+  // ارتباط با طرف حساب
+  personId          Int?
+  person            Person?           @relation(fields: [personId], references: [id])
+  
+  // ارتباط با سند حسابداری
+  voucherItemId     Int?
+  voucherItem       VoucherItem?      @relation(fields: [voucherItemId], references: [id], onDelete: SetNull)
+  
+  description       String?
+  createdBy         Int?
+  createdAt         DateTime          @default(now())
+  
+  @@index([productId, warehouseId, transactionDate])
+  @@map("inventory_ledger")
+}
+
+// ۱۸. شمارنده اسناد انبار
+model InventoryCounter {
+  id               Int      @id @default(autoincrement())
+  prefix           String   @db.VarChar(10)
+  year             Int
+  month            Int
+  lastNumber       Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  @@unique([prefix, year, month])
+  @@map("inventory_counters")
 }
 
 // ==========================================================
@@ -207,6 +435,7 @@ enum PersonType {
   customer  // مشتری
   supplier  // تامین کننده
   employee  // کارمند
+  other     // سایر
 }
 
 enum ChequeType {
@@ -216,8 +445,14 @@ enum ChequeType {
 
 enum ChequeStatus {
   pending   // در انتظار
-  collected // وصول شده (برای دریافتنی) یا پاس شده (برای پرداختنی)
+  collected // وصول شده
   deposited // در جریان وصول
   returned  // برگشت خورده
   canceled  // باطل شده
+}
+
+// اثر حرکت انبار
+enum InventoryEffect {
+  increase  // افزایش موجودی
+  decrease  // کاهش موجودی
 }
