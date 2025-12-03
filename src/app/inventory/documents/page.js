@@ -195,6 +195,13 @@ export default function InventoryDocumentsPage() {
               🎯 محصول نهایی
             </Link>
             <Link
+              href="/inventory/documents/purchase-materials"
+              className="btn btn-success d-flex align-items-center"
+            >
+              <i className="bi bi-cart-plus me-2"></i>
+              خرید مواد اولیه
+            </Link>
+            <Link
               href="/inventory/documents/create"
               className="btn btn-primary"
             >

@@ -1,617 +1,677 @@
+// src/components/forms/InventoryDocumentForm.jsx - نسخه اصلاح شده
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import React from 'react'; // اضافه کردن import React
 
 export default function InventoryDocumentForm({ onSuccess, defaultType = '' }) {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [warehouses, setWarehouses] = useState([]);
-  const [transactionTypes, setTransactionTypes] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [persons, setPersons] = useState([]);
-  const [createVoucher, setCreateVoucher] = useState(true);
-
+  
   const [formData, setFormData] = useState({
-    typeId: defaultType || '',
+    typeId: '',
     warehouseId: '',
     personId: '',
     documentDate: new Date().toISOString().split('T')[0],
     referenceNumber: '',
     description: '',
-    items: []
+    
+    // بخش پرداخت
+    paymentMethod: '', // 'cash', 'transfer', 'cheque', ''
+    bankDetailAccountId: '',
+    expenseDetailAccountId: '',
+    paymentDescription: '',
+    
+    // اطلاعات چک (اگر پرداخت چکی است)
+    chequeData: {
+      chequeNumber: '',
+      amount: '',
+      issueDate: '',
+      dueDate: '',
+      description: ''
+    }
   });
+  
+  const [items, setItems] = useState([]);
+  const [transactionTypes, setTransactionTypes] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
+  const [persons, setPersons] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [detailAccounts, setDetailAccounts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+  const [filteredProducts, setFilteredProducts] = useState([]);
 
-  const [errors, setErrors] = useState({});
-  const [currentProduct, setCurrentProduct] = useState(null);
-
+  // بارگذاری داده‌های اولیه
   useEffect(() => {
-    loadDependencies();
+    fetchInitialData();
   }, []);
 
-  const loadDependencies = async () => {
+  // تنظیم نوع پیش‌فرض
+  useEffect(() => {
+    if (defaultType && transactionTypes.length > 0) {
+      const type = transactionTypes.find(t => 
+        t.code.toLowerCase().includes(defaultType.toLowerCase()) ||
+        t.name.includes(defaultType)
+      );
+      if (type) {
+        setFormData(prev => ({ ...prev, typeId: type.id }));
+      }
+    }
+  }, [defaultType, transactionTypes]);
+
+  // فیلتر محصولات بر اساس جستجو
+  useEffect(() => {
+    if (productSearch.trim() === '') {
+      setFilteredProducts(products);
+    } else {
+      const filtered = products.filter(product =>
+        product.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+        product.code.toLowerCase().includes(productSearch.toLowerCase()) ||
+        (product.barcode && product.barcode.includes(productSearch))
+      );
+      setFilteredProducts(filtered);
+    }
+  }, [productSearch, products]);
+
+  const fetchInitialData = async () => {
     try {
-      console.log('Loading dependencies...');
+      setLoading(true);
       
-      const [warehousesRes, typesRes, productsRes, personsRes] = await Promise.all([
-        fetch('/api/inventory/warehouses'),
+      // بارگذاری موازی داده‌ها
+      const [typesRes, warehousesRes, personsRes, productsRes, accountsRes] = await Promise.all([
         fetch('/api/inventory/transaction-types'),
+        fetch('/api/inventory/warehouses'),
+        fetch('/api/persons'),
         fetch('/api/inventory/products'),
-        fetch('/api/persons')
+        fetch('/api/detail-accounts/for-products')
       ]);
 
-      console.log('Responses received:', {
-        warehouses: warehousesRes.status,
-        types: typesRes.status,
-        products: productsRes.status,
-        persons: personsRes.status
-      });
-
-      const warehousesData = await warehousesRes.json();
-      const typesData = await typesRes.json();
-      const productsData = await productsRes.json();
-      const personsData = await personsRes.json();
-
-      console.log('Data received:', {
-        warehousesData,
-        typesData,
-        productsData,
-        personsData
-      });
-
-      // بررسی فرمت داده‌ها
-      const warehousesArray = Array.isArray(warehousesData) ? warehousesData : (warehousesData.warehouses || []);
-      const typesArray = Array.isArray(typesData) ? typesData : (typesData.types || []);
-      const productsArray = Array.isArray(productsData) ? productsData : (productsData.products || []);
-      const personsArray = Array.isArray(personsData) ? personsData : (personsData.persons || []);
-
-      console.log('Arrays:', {
-        warehousesArray,
-        typesArray,
-        productsArray,
-        personsArray
-      });
-
-      setWarehouses(warehousesArray);
-      setTransactionTypes(typesArray);
-      setProducts(productsArray);
-      setPersons(personsArray);
-    } catch (error) {
-      console.error('Error loading dependencies:', error);
-    }
-  };
-
-  const validateForm = () => {
-    const newErrors = {};
-    
-    if (!formData.typeId) {
-      newErrors.typeId = 'نوع سند الزامی است';
-    }
-    
-    if (!formData.warehouseId) {
-      newErrors.warehouseId = 'انبار الزامی است';
-    }
-    
-    if (!formData.documentDate) {
-      newErrors.documentDate = 'تاریخ سند الزامی است';
-    }
-    
-    if (formData.items.length === 0) {
-      newErrors.items = 'حداقل یک کالا باید اضافه شود';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-    
-    setLoading(true);
-    setErrors({});
-
-    try {
-      const payload = {
-        ...formData,
-        typeId: parseInt(formData.typeId),
-        warehouseId: parseInt(formData.warehouseId),
-        personId: formData.personId ? parseInt(formData.personId) : null,
-        items: formData.items.map(item => ({
-          productId: parseInt(item.productId),
-          quantity: parseFloat(item.quantity),
-          unitPrice: parseFloat(item.unitPrice) || 0,
-          description: item.description || ''
-        })),
-        createVoucher
-      };
-
-      console.log('Submitting payload:', payload);
-
-      const response = await fetch('/api/inventory/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        alert('سند انبار با موفقیت ثبت شد');
-        
-        if (onSuccess) {
-          onSuccess(data);
-        }
-      } else {
-        const error = await response.json();
-        alert(error.error || 'خطا در ثبت سند');
+      if (typesRes.ok) {
+        const typesData = await typesRes.json();
+        setTransactionTypes(Array.isArray(typesData) ? typesData : (typesData.types || []));
       }
+      
+      if (warehousesRes.ok) {
+        const warehousesData = await warehousesRes.json();
+        setWarehouses(warehousesData.warehouses || []);
+      }
+      
+      if (personsRes.ok) {
+        const personsData = await personsRes.ok ? await personsRes.json() : [];
+        setPersons(personsData);
+      }
+      
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        setProducts(productsData.products || []);
+        setFilteredProducts(productsData.products || []);
+      }
+      
+      if (accountsRes.ok) {
+        const accountsData = await accountsRes.json();
+        setDetailAccounts(accountsData);
+      }
+      
     } catch (error) {
-      console.error('Error saving document:', error);
-      alert('خطا در ثبت سند');
+      console.error('خطا در بارگذاری داده‌ها:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
+    if (items.length === 0) {
+      alert('لطفاً حداقل یک کالا اضافه کنید');
+      return;
     }
-  };
 
-  const handleProductSelect = (productId) => {
-    const product = products.find(p => p.id === parseInt(productId));
-    setCurrentProduct(product);
-  };
-
-  const addItem = () => {
-    setFormData(prev => ({
-      ...prev,
-      items: [...prev.items, {
-        productId: '',
-        quantity: 1,
-        unitPrice: currentProduct?.defaultPurchasePrice || 0,
-        description: ''
-      }]
-    }));
-  };
-
-  const removeItem = (index) => {
-    if (confirm('آیا از حذف این کالا اطمینان دارید؟')) {
-      setFormData(prev => ({
-        ...prev,
-        items: prev.items.filter((_, i) => i !== index)
-      }));
+    // اگر روش پرداخت مشخص شده، حساب هزینه باید مشخص باشد
+    if (formData.paymentMethod && !formData.expenseDetailAccountId) {
+      alert('برای ثبت پرداخت، حساب هزینه/خرید را انتخاب کنید');
+      return;
     }
-  };
 
-  const updateItem = (index, field, value) => {
-    const newItems = [...formData.items];
-    
-    if (field === 'productId') {
-      const product = products.find(p => p.id === parseInt(value));
-      newItems[index] = {
-        ...newItems[index],
-        [field]: value,
-        unitPrice: product?.defaultPurchasePrice || 0
+    // اگر پرداخت حواله یا چک است، حساب بانک باید مشخص باشد
+    if ((formData.paymentMethod === 'transfer' || formData.paymentMethod === 'cheque') && 
+        !formData.bankDetailAccountId) {
+      alert('برای این روش پرداخت، حساب بانک را انتخاب کنید');
+      return;
+    }
+
+    // اگر پرداخت چکی است، اطلاعات چک را بررسی کن
+    if (formData.paymentMethod === 'cheque') {
+      if (!formData.chequeData.chequeNumber || !formData.chequeData.amount || 
+          !formData.chequeData.issueDate || !formData.chequeData.dueDate) {
+        alert('لطفاً اطلاعات کامل چک را وارد کنید');
+        return;
+      }
+    }
+
+    try {
+      setLoading(true);
+      
+      const payload = {
+        ...formData,
+        items: items.map(item => ({
+          productId: item.id,
+          quantity: parseFloat(item.quantity),
+          unitPrice: parseFloat(item.unitPrice),
+          description: item.description || ''
+        })),
+        createVoucher: !!formData.paymentMethod // اگر روش پرداخت مشخص شده، سند حسابداری هم ایجاد شود
       };
-      handleProductSelect(value);
-    } else {
-      newItems[index] = {
-        ...newItems[index],
-        [field]: field === 'quantity' || field === 'unitPrice' ? parseFloat(value) || 0 : value
-      };
+
+      console.log('📤 ارسال داده‌ها:', payload);
+
+      const response = await fetch('/api/inventory/documents/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('✅ سند انبار با موفقیت ثبت شد');
+        
+        // نمایش اطلاعات ثبت شده
+        if (data.voucher) {
+          alert(`📄 سند حسابداری شماره ${data.voucher.voucherNumber} نیز ثبت شد`);
+        }
+        
+        if (data.cheque) {
+          alert(`🧾 چک شماره ${data.cheque.chequeNumber} نیز ثبت شد`);
+        }
+        
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          router.push('/inventory/documents');
+        }
+      } else {
+        throw new Error(data.error || 'خطا در ثبت سند');
+      }
+    } catch (error) {
+      console.error('❌ خطا در ثبت سند:', error);
+      alert(`خطا در ثبت سند: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
-    
-    setFormData(prev => ({
-      ...prev,
-      items: newItems
-    }));
   };
 
-  const clearItems = () => {
-    if (confirm('آیا از حذف تمام کالاها اطمینان دارید؟')) {
-      setFormData(prev => ({
-        ...prev,
-        items: []
-      }));
+  const handleAddItem = (product) => {
+    if (items.some(item => item.id === product.id)) {
+      alert('این کالا قبلاً اضافه شده است');
+      return;
     }
+
+    const newItem = {
+      id: product.id,
+      code: product.code,
+      name: product.name,
+      unit: product.unit?.name || 'عدد',
+      quantity: 1,
+      unitPrice: product.defaultPurchasePrice || 0,
+      description: ''
+    };
+
+    setItems([...items, newItem]);
+    setProductSearch('');
+    setFilteredProducts(products);
   };
 
-  const calculateItemTotal = (quantity, unitPrice) => {
-    return (parseFloat(quantity) || 0) * (parseFloat(unitPrice) || 0);
+  const handleRemoveItem = (id) => {
+    setItems(items.filter(item => item.id !== id));
   };
 
-  const totalAmount = formData.items.reduce((sum, item) => {
-    return sum + calculateItemTotal(item.quantity, item.unitPrice);
-  }, 0);
+  const handleItemChange = (id, field, value) => {
+    setItems(items.map(item => 
+      item.id === id ? { ...item, [field]: value } : item
+    ));
+  };
 
-  const totalQuantity = formData.items.reduce((sum, item) => {
-    return sum + (parseFloat(item.quantity) || 0);
-  }, 0);
+  const calculateTotal = () => {
+    return items.reduce((sum, item) => {
+      const quantity = parseFloat(item.quantity) || 0;
+      const unitPrice = parseFloat(item.unitPrice) || 0;
+      return sum + (quantity * unitPrice);
+    }, 0).toFixed(0);
+  };
 
-  return (
-    <form onSubmit={handleSubmit} className="needs-validation" noValidate>
-      <div className="row g-4 mb-4">
-        {/* اطلاعات اصلی سند */}
-        <div className="col-md-6">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-light py-3">
-              <h6 className="mb-0">
-                <i className="bi bi-info-circle me-2"></i>
-                اطلاعات اصلی
-              </h6>
-            </div>
-            <div className="card-body">
-              {/* نوع سند */}
-              <div className="mb-3">
-                <label htmlFor="typeId" className="form-label">
-                  نوع سند <span className="text-danger">*</span>
-                </label>
-                <select
-                  id="typeId"
-                  name="typeId"
-                  value={formData.typeId}
-                  onChange={handleChange}
-                  className={`form-select ${errors.typeId ? 'is-invalid' : ''}`}
-                  required
-                >
-                  <option value="">انتخاب نوع سند</option>
-                  {transactionTypes.length === 0 ? (
-                    <option value="" disabled>
-                      در حال بارگذاری...
-                    </option>
-                  ) : (
-                    transactionTypes.map(type => (
-                      <option key={type.id} value={type.id}>
-                        {type.name} ({type.effect === 'increase' ? 'افزایش موجودی' : 'کاهش موجودی'})
-                      </option>
-                    ))
-                  )}
-                </select>
-                {errors.typeId && <div className="invalid-feedback">{errors.typeId}</div>}
-                <div className="form-text">
-                  {transactionTypes.length === 0 && 'لطفاً منتظر بمانید...'}
-                  {transactionTypes.length > 0 && `${transactionTypes.length} نوع سند موجود است`}
-                </div>
-              </div>
-
-              {/* انبار */}
-              <div className="mb-3">
-                <label htmlFor="warehouseId" className="form-label">
-                  انبار <span className="text-danger">*</span>
-                </label>
-                <select
-                  id="warehouseId"
-                  name="warehouseId"
-                  value={formData.warehouseId}
-                  onChange={handleChange}
-                  className={`form-select ${errors.warehouseId ? 'is-invalid' : ''}`}
-                  required
-                >
-                  <option value="">انتخاب انبار</option>
-                  {warehouses.map(wh => (
-                    <option key={wh.id} value={wh.id}>
-                      {wh.code} - {wh.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.warehouseId && <div className="invalid-feedback">{errors.warehouseId}</div>}
-              </div>
-
-              {/* تاریخ سند */}
-              <div className="mb-3">
-                <label htmlFor="documentDate" className="form-label">
-                  تاریخ سند <span className="text-danger">*</span>
-                </label>
-                <input
-                  type="date"
-                  id="documentDate"
-                  name="documentDate"
-                  value={formData.documentDate}
-                  onChange={handleChange}
-                  className={`form-control ${errors.documentDate ? 'is-invalid' : ''}`}
-                  required
-                />
-                {errors.documentDate && <div className="invalid-feedback">{errors.documentDate}</div>}
-              </div>
-
-              {/* طرف حساب */}
-              <div className="mb-3">
-                <label htmlFor="personId" className="form-label">
-                  طرف حساب
-                </label>
-                <select
-                  id="personId"
-                  name="personId"
-                  value={formData.personId}
-                  onChange={handleChange}
-                  className="form-select"
-                >
-                  <option value="">بدون طرف حساب</option>
-                  {persons.map(person => (
-                    <option key={person.id} value={person.id}>
-                      {person.name} ({person.type === 'customer' ? 'مشتری' : 'تامین کننده'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+  // کامپوننت برای فرم چک
+  const ChequeFormSection = () => (
+    <div className="card border mb-4">
+      <div className="card-header bg-warning bg-opacity-10">
+        <h6 className="mb-0">
+          <i className="bi bi-pen text-warning me-2"></i>
+          اطلاعات چک
+        </h6>
+      </div>
+      <div className="card-body">
+        <div className="row g-3">
+          <div className="col-md-6">
+            <label className="form-label">
+              شماره چک <span className="text-danger">*</span>
+            </label>
+            <input
+              type="text"
+              className="form-control"
+              value={formData.chequeData.chequeNumber}
+              onChange={(e) => setFormData(prev => ({
+                ...prev,
+                chequeData: { ...prev.chequeData, chequeNumber: e.target.value }
+              }))}
+              required
+            />
           </div>
-        </div>
-
-        {/* اطلاعات جانبی */}
-        <div className="col-md-6">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-light py-3">
-              <h6 className="mb-0">
-                <i className="bi bi-card-checklist me-2"></i>
-                اطلاعات تکمیلی
-              </h6>
-            </div>
-            <div className="card-body">
-              {/* شماره مرجع */}
-              <div className="mb-3">
-                <label htmlFor="referenceNumber" className="form-label">
-                  شماره مرجع
-                </label>
-                <input
-                  type="text"
-                  id="referenceNumber"
-                  name="referenceNumber"
-                  value={formData.referenceNumber}
-                  onChange={handleChange}
-                  className="form-control"
-                  placeholder="شماره فاکتور یا سند مرجع"
-                />
-              </div>
-
-              {/* توضیحات */}
-              <div className="mb-3">
-                <label htmlFor="description" className="form-label">
-                  توضیحات
-                </label>
-                <textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleChange}
-                  className="form-control"
-                  rows="3"
-                  placeholder="توضیحات مربوط به سند"
-                />
-              </div>
-
-              {/* تنظیمات */}
-              <div className="mb-3">
-                <div className="form-check">
-                  <input
-                    type="checkbox"
-                    id="createVoucher"
-                    checked={createVoucher}
-                    onChange={(e) => setCreateVoucher(e.target.checked)}
-                    className="form-check-input"
-                  />
-                  <label htmlFor="createVoucher" className="form-check-label">
-                    ایجاد سند حسابداری مرتبط
-                  </label>
-                  <div className="form-text">
-                    در صورت انتخاب، سند حسابداری متناظر با این سند انبار ایجاد می‌شود
-                  </div>
-                </div>
-              </div>
-            </div>
+          
+          <div className="col-md-6">
+            <label className="form-label">
+              مبلغ چک <span className="text-danger">*</span>
+            </label>
+            <input
+              type="number"
+              className="form-control"
+              value={formData.chequeData.amount}
+              onChange={(e) => setFormData(prev => ({
+                ...prev,
+                chequeData: { ...prev.chequeData, amount: e.target.value }
+              }))}
+              required
+            />
+          </div>
+          
+          <div className="col-md-6">
+            <label className="form-label">
+              تاریخ صدور <span className="text-danger">*</span>
+            </label>
+            <input
+              type="date"
+              className="form-control"
+              value={formData.chequeData.issueDate}
+              onChange={(e) => setFormData(prev => ({
+                ...prev,
+                chequeData: { ...prev.chequeData, issueDate: e.target.value }
+              }))}
+              required
+            />
+          </div>
+          
+          <div className="col-md-6">
+            <label className="form-label">
+              تاریخ سررسید <span className="text-danger">*</span>
+            </label>
+            <input
+              type="date"
+              className="form-control"
+              value={formData.chequeData.dueDate}
+              onChange={(e) => setFormData(prev => ({
+                ...prev,
+                chequeData: { ...prev.chequeData, dueDate: e.target.value }
+              }))}
+              required
+            />
+          </div>
+          
+          <div className="col-12">
+            <label className="form-label">شرح چک</label>
+            <textarea
+              className="form-control"
+              rows="2"
+              value={formData.chequeData.description}
+              onChange={(e) => setFormData(prev => ({
+                ...prev,
+                chequeData: { ...prev.chequeData, description: e.target.value }
+              }))}
+              placeholder="شرح دلخواه برای چک..."
+            />
           </div>
         </div>
       </div>
+    </div>
+  );
 
-      {/* بخش کالاها */}
-      <div className="card border-0 shadow-sm mb-4">
-        <div className="card-header bg-white py-3">
-          <div className="d-flex justify-content-between align-items-center">
-            <h6 className="mb-0">
-              <i className="bi bi-boxes me-2"></i>
-              کالاها
-            </h6>
-            <div className="d-flex gap-2">
-              <button
-                type="button"
-                onClick={clearItems}
-                className="btn btn-outline-danger btn-sm d-flex align-items-center"
-                disabled={formData.items.length === 0}
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* بخش اطلاعات اصلی */}
+      <div className="row mb-4">
+        <div className="col-md-4">
+          <label className="form-label">
+            نوع سند <span className="text-danger">*</span>
+          </label>
+          <select
+            className="form-select"
+            value={formData.typeId}
+            onChange={(e) => setFormData({ ...formData, typeId: e.target.value })}
+            required
+          >
+            <option value="">انتخاب کنید</option>
+            {transactionTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name} ({type.effect === 'increase' ? 'افزایش' : 'کاهش'})
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="col-md-4">
+          <label className="form-label">
+            انبار <span className="text-danger">*</span>
+          </label>
+          <select
+            className="form-select"
+            value={formData.warehouseId}
+            onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+            required
+          >
+            <option value="">انتخاب کنید</option>
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name} ({warehouse.code})
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="col-md-4">
+          <label className="form-label">تاریخ سند <span className="text-danger">*</span></label>
+          <input
+            type="date"
+            className="form-control"
+            value={formData.documentDate}
+            onChange={(e) => setFormData({ ...formData, documentDate: e.target.value })}
+            required
+          />
+        </div>
+      </div>
+
+      {/* بخش طرف حساب */}
+      <div className="row mb-4">
+        <div className="col-md-6">
+          <label className="form-label">طرف حساب (اختیاری)</label>
+          <select
+            className="form-select"
+            value={formData.personId}
+            onChange={(e) => setFormData({ ...formData, personId: e.target.value })}
+          >
+            <option value="">انتخاب کنید</option>
+            {persons.map((person) => (
+              <option key={person.id} value={person.id}>
+                {person.name} ({person.type === 'supplier' ? 'تامین‌کننده' : 
+                              person.type === 'customer' ? 'مشتری' : 'سایر'})
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="col-md-6">
+          <label className="form-label">شماره ارجاع</label>
+          <input
+            type="text"
+            className="form-control"
+            value={formData.referenceNumber}
+            onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
+            placeholder="مثلاً شماره فاکتور"
+          />
+        </div>
+      </div>
+
+      {/* بخش پرداخت */}
+      <div className="card border mb-4">
+        <div className="card-header bg-info bg-opacity-10">
+          <h6 className="mb-0">
+            <i className="bi bi-cash-coin text-info me-2"></i>
+            اطلاعات پرداخت (اختیاری)
+          </h6>
+        </div>
+        <div className="card-body">
+          <div className="row g-3">
+            <div className="col-md-6">
+              <label className="form-label">روش پرداخت</label>
+              <select
+                className="form-select"
+                value={formData.paymentMethod}
+                onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
               >
-                <i className="bi bi-trash me-1"></i>
-                حذف همه
-              </button>
-              <button
-                type="button"
-                onClick={addItem}
-                className="btn btn-success btn-sm d-flex align-items-center"
+                <option value="">انتخاب کنید</option>
+                <option value="">بدون پرداخت (ثبت نسیه)</option>
+                <option value="cash">پرداخت نقدی</option>
+                <option value="transfer">پرداخت حواله</option>
+                <option value="cheque">پرداخت چکی</option>
+              </select>
+            </div>
+            
+            <div className="col-md-6">
+              <label className="form-label">حساب هزینه/خرید</label>
+              <select
+                className="form-select"
+                value={formData.expenseDetailAccountId}
+                onChange={(e) => setFormData({ ...formData, expenseDetailAccountId: e.target.value })}
+                disabled={!formData.paymentMethod}
               >
-                <i className="bi bi-plus-circle me-1"></i>
-                افزودن کالا
-              </button>
+                <option value="">انتخاب کنید</option>
+                {detailAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.code} - {account.name} 
+                    {account.subAccount && ` (${account.subAccount.code})`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {(formData.paymentMethod === 'transfer' || formData.paymentMethod === 'cheque') && (
+              <div className="col-md-6">
+                <label className="form-label">حساب بانک <span className="text-danger">*</span></label>
+                <select
+                  className="form-select"
+                  value={formData.bankDetailAccountId}
+                  onChange={(e) => setFormData({ ...formData, bankDetailAccountId: e.target.value })}
+                  required
+                >
+                  <option value="">انتخاب کنید</option>
+                  {detailAccounts.filter(acc => 
+                    acc.name.toLowerCase().includes('بانک') || 
+                    acc.subAccount?.code?.startsWith('1-03') // حساب‌های بانکی
+                  ).map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.code} - {account.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            <div className="col-md-6">
+              <label className="form-label">شرح پرداخت</label>
+              <input
+                type="text"
+                className="form-control"
+                value={formData.paymentDescription}
+                onChange={(e) => setFormData({ ...formData, paymentDescription: e.target.value })}
+                placeholder="شرح پرداخت..."
+              />
             </div>
           </div>
+          
+          {/* فرم اطلاعات چک (فقط اگر پرداخت چکی است) */}
+          {formData.paymentMethod === 'cheque' && <ChequeFormSection />}
         </div>
+      </div>
 
+      {/* بخش انتخاب کالاها */}
+      <div className="card border mb-4">
+        <div className="card-header bg-primary bg-opacity-10">
+          <div className="d-flex justify-content-between align-items-center">
+            <h6 className="mb-0">
+              <i className="bi bi-cart-plus text-primary me-2"></i>
+              کالاها
+            </h6>
+            <span className="badge bg-primary">
+              {items.length} کالا
+            </span>
+          </div>
+        </div>
+        
         <div className="card-body">
-          {formData.items.length === 0 ? (
-            <div className="text-center py-5 text-muted">
-              <i className="bi bi-box-seam display-5 d-block mb-3"></i>
-              <p>هنوز کالایی اضافه نشده است</p>
-              <button
-                type="button"
-                onClick={addItem}
-                className="btn btn-primary"
-              >
-                <i className="bi bi-plus-circle me-2"></i>
-                افزودن اولین کالا
-              </button>
-            </div>
-          ) : (
+          {/* جستجوی کالا */}
+          <div className="mb-4">
+            <label className="form-label">جستجوی کالا</label>
+            <input
+              type="text"
+              className="form-control"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              placeholder="جستجوی کالا با نام، کد یا بارکد..."
+            />
+            
+            {/* لیست کالاهای پیشنهادی */}
+            {productSearch && filteredProducts.length > 0 && (
+              <div className="mt-2 border rounded p-2" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                {filteredProducts.slice(0, 10).map((product) => (
+                  <div
+                    key={product.id}
+                    className="p-2 border-bottom hover-bg-light cursor-pointer"
+                    onClick={() => handleAddItem(product)}
+                  >
+                    <div className="d-flex justify-content-between">
+                      <div>
+                        <strong>{product.name}</strong>
+                        <small className="text-muted d-block">
+                          کد: {product.code} | واحد: {product.unit?.name || 'عدد'}
+                        </small>
+                      </div>
+                      <div className="text-end">
+                        <small className="text-muted d-block">
+                          قیمت خرید: {product.defaultPurchasePrice?.toLocaleString()} ریال
+                        </small>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* لیست کالاهای انتخاب شده */}
+          {items.length > 0 && (
             <div className="table-responsive">
               <table className="table table-hover">
-                <thead className="table-light">
+                <thead>
                   <tr>
-                    <th style={{ width: '40%' }}>کالا</th>
-                    <th style={{ width: '15%' }}>تعداد</th>
-                    <th style={{ width: '15%' }}>قیمت واحد</th>
-                    <th style={{ width: '15%' }}>مبلغ کل</th>
-                    <th style={{ width: '10%' }}>عملیات</th>
+                    <th>ردیف</th>
+                    <th>کد</th>
+                    <th>نام کالا</th>
+                    <th>واحد</th>
+                    <th>تعداد</th>
+                    <th>قیمت واحد (ریال)</th>
+                    <th>جمع (ریال)</th>
+                    <th>عملیات</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {formData.items.map((item, index) => {
-                    const product = products.find(p => p.id === parseInt(item.productId));
-                    const itemTotal = calculateItemTotal(item.quantity, item.unitPrice);
-                    
-                    return (
-                      <tr key={index}>
-                        <td>
-                          <select
-                            value={item.productId}
-                            onChange={(e) => updateItem(index, 'productId', e.target.value)}
-                            className="form-select"
-                            required
-                          >
-                            <option value="">انتخاب کالا</option>
-                            {products.map(product => (
-                              <option key={product.id} value={product.id}>
-                                {product.code} - {product.name}
-                                {product.unit && ` (${product.unit.name})`}
-                              </option>
-                            ))}
-                          </select>
-                          {product && (
-                            <small className="text-muted d-block mt-1">
-                              موجودی فعلی: {product.currentStock || 0}
-                            </small>
-                          )}
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateItem(index, 'quantity', e.target.value)}
-                            className="form-control text-center"
-                            min="0.001"
-                            step="0.001"
-                            required
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            value={item.unitPrice}
-                            onChange={(e) => updateItem(index, 'unitPrice', e.target.value)}
-                            className="form-control text-center"
-                            min="0"
-                            step="1000"
-                          />
-                          <small className="text-muted d-block">
-                            {item.unitPrice.toLocaleString('fa-IR')} ریال
-                          </small>
-                        </td>
-                        <td>
-                          <div className="fw-bold text-success">
-                            {itemTotal.toLocaleString('fa-IR')} ریال
-                          </div>
-                        </td>
-                        <td className="text-center">
-                          <button
-                            type="button"
-                            onClick={() => removeItem(index)}
-                            className="btn btn-outline-danger btn-sm"
-                            title="حذف"
-                          >
-                            <i className="bi bi-trash"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {items.map((item, index) => (
+                    <tr key={item.id}>
+                      <td>{index + 1}</td>
+                      <td>{item.code}</td>
+                      <td>{item.name}</td>
+                      <td>{item.unit}</td>
+                      <td>
+                        <input
+                          type="number"
+                          className="form-control form-control-sm"
+                          value={item.quantity}
+                          onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value)}
+                          min="0.001"
+                          step="0.001"
+                          style={{ width: '100px' }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          className="form-control form-control-sm"
+                          value={item.unitPrice}
+                          onChange={(e) => handleItemChange(item.id, 'unitPrice', e.target.value)}
+                          min="0"
+                          style={{ width: '150px' }}
+                        />
+                      </td>
+                      <td>
+                        {(item.quantity * item.unitPrice).toLocaleString()} ریال
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => handleRemoveItem(item.id)}
+                        >
+                          <i className="bi bi-trash"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan="6" className="text-end fw-bold">جمع کل:</td>
+                    <td className="fw-bold text-success">
+                      {calculateTotal().toLocaleString()} ریال
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
               </table>
-            </div>
-          )}
-
-          {/* جمع‌های کل */}
-          {formData.items.length > 0 && (
-            <div className="row mt-4">
-              <div className="col-md-6">
-                <div className="alert alert-info mb-0">
-                  <div className="d-flex justify-content-between">
-                    <span>تعداد کالاهای مختلف:</span>
-                    <span className="fw-bold">{formData.items.length}</span>
-                  </div>
-                  <div className="d-flex justify-content-between">
-                    <span>تعداد کل اقلام:</span>
-                    <span className="fw-bold">{totalQuantity.toLocaleString('fa-IR')}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="col-md-6">
-                <div className="alert alert-success mb-0">
-                  <div className="d-flex justify-content-between align-items-center">
-                    <span className="fs-5">جمع مبلغ کل:</span>
-                    <span className="fs-4 fw-bold">{totalAmount.toLocaleString('fa-IR')} ریال</span>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </div>
       </div>
 
-      {errors.items && (
-        <div className="alert alert-danger">
-          <i className="bi bi-exclamation-triangle me-2"></i>
-          {errors.items}
-        </div>
-      )}
+      {/* بخش توضیحات */}
+      <div className="mb-4">
+        <label className="form-label">توضیحات سند</label>
+        <textarea
+          className="form-control"
+          rows="3"
+          value={formData.description}
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          placeholder="توضیحات اختیاری..."
+        />
+      </div>
 
-      {/* دکمه‌های فرم */}
-      <div className="border-top pt-4 mt-3">
-        <div className="d-flex justify-content-end gap-3">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="btn btn-outline-secondary d-flex align-items-center px-4"
-            disabled={loading}
-          >
-            <i className="bi bi-arrow-right me-2"></i>
-            انصراف
-          </button>
-          <button
-            type="submit"
-            className="btn btn-success d-flex align-items-center px-4"
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                در حال ثبت...
-              </>
-            ) : (
-              <>
-                <i className="bi bi-check-lg me-2"></i>
-                ثبت سند انبار
-              </>
-            )}
-          </button>
-        </div>
+      {/* دکمه‌های ثبت */}
+      <div className="d-flex justify-content-between">
+        <button
+          type="button"
+          className="btn btn-outline-secondary"
+          onClick={() => router.back()}
+          disabled={loading}
+        >
+          <i className="bi bi-arrow-right me-2"></i>
+          انصراف
+        </button>
+        
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={loading || items.length === 0}
+        >
+          {loading ? (
+            <>
+              <span className="spinner-border spinner-border-sm me-2"></span>
+              در حال ثبت...
+            </>
+          ) : (
+            <>
+              <i className="bi bi-check-circle me-2"></i>
+              ثبت سند انبار
+              {formData.paymentMethod && ' و سند حسابداری'}
+            </>
+          )}
+        </button>
       </div>
     </form>
   );
