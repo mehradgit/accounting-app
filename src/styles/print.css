@@ -1,44 +1,99 @@
-/* src/styles/print.css */
+/* ==============================
+   فونت فارسی Vazirmatn
+============================== */
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("../../public/fonts/Vazir.eot");
+  src: url("../../public/fonts/Vazir.eot?#iefix") format("embedded-opentype"),
+       url("../../public/fonts/Vazir.woff2") format("woff2"),
+       url("../../public/fonts/Vazir.woff") format("woff"),
+       url("../../public/fonts/Vazir.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* ==============================
+   حالت چاپ و نمایش
+============================== */
+.print-only { display: none; }
+
 @media print {
-  body * {
-    visibility: hidden;
-  }
-  
-  .print-container,
-  .print-container * {
-    visibility: visible;
-  }
-  
-  .print-container {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-  }
-  
-  .no-print {
-    display: none !important;
-  }
-  
-  .voucher-print {
-    box-shadow: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-}
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
 
-/* استایل‌های فارسی برای پرینت */
-.voucher-print {
-  font-family: 'Tahoma', 'Arial', sans-serif;
-  direction: rtl;
-  line-height: 1.5;
-}
+  body, .print-only {
+    font-family: "Vazirmatn", Tahoma, sans-serif !important;
+    font-size: 13px !important;
+    line-height: 1.5;
+    color: #000;
+  }
 
-.voucher-table {
-  font-size: 11px;
-}
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
 
-.amount {
-  font-family: 'Courier New', monospace;
-  font-weight: bold;
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin-bottom: 15px;
+  }
+
+  table th, table td {
+    border: 1px solid #333 !important;
+    padding: 8px !important;
+    font-size: 13px !important;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  table th {
+    background-color: #4a4a4a !important; /* هدر تیره‌تر */
+    color: #fff !important;
+    font-weight: bold;
+  }
+
+  table tbody tr:nth-child(even) {
+    background-color: #f3f3f3 !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Vazirmatn", Tahoma, sans-serif !important;
+    color: #000 !important;
+    margin: 8px 0 !important;
+  }
+
+  .stock-warehouse {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .stock-warehouse div {
+    border: 1px solid #333;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-weight: bold;
+    background-color: #e8e8e8;
+  }
+
+  /* امضا و مهر */
+  .signatures {
+    margin-top: 40px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .signature-box {
+    width: 45%;
+    text-align: center;
+    border-top: 1px solid #333;
+    padding-top: 6px;
+    font-weight: bold;
+  }
+
+  html, body {
+    overflow: visible !important;
+  }
 }

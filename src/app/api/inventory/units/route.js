@@ -8,8 +8,8 @@ export async function GET(request) {
       orderBy: { code: "asc" },
     });
 
-    // برگرداندن آرایه مستقیم
-    return NextResponse.json(units);
+    // برگرداندن به صورت آبجکت با کلید units (مطابق انتظار کامپوننت)
+    return NextResponse.json({ units });
   } catch (error) {
     console.error("Error fetching units:", error);
     return NextResponse.json(
@@ -18,6 +18,7 @@ export async function GET(request) {
     );
   }
 }
+
 // POST: ایجاد واحد جدید
 export async function POST(request) {
   try {
@@ -50,7 +51,7 @@ export async function POST(request) {
       },
     });
 
-    return NextResponse.json(unit, { status: 201 });
+    return NextResponse.json({ unit }, { status: 201 });
   } catch (error) {
     console.error("Error creating unit:", error);
     return NextResponse.json({ error: "خطا در ایجاد واحد" }, { status: 500 });

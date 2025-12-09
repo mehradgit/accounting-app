@@ -6,8 +6,8 @@ import "@styles/persian-datepicker.css";
 import BootstrapClient from "@/components/BootstrapClient";
 
 export const metadata = {
-  title: "سیستم حسابداری",
-  description: "سیستم کامل حسابداری با Next.js",
+  title: "سیستم حسابداری نگین آرا",
+  description: "سیستم جامع حسابداری و انبارداری ",
 };
 
 export default function RootLayout({ children }) {
@@ -15,7 +15,7 @@ export default function RootLayout({ children }) {
     <html lang="fa" dir="rtl">
       <body>
         <div className="app-container d-flex">
-          <Sidebar />
+          {/* <Sidebar /> */}
           <div className="main-content">
             <Header />
             <main className="content">{children}</main>

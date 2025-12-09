@@ -269,9 +269,9 @@ async function createAccountingVoucher(
   const voucherNumber = generateVoucherNumber(lastVoucher?.id || 0);
 
   // توضیحات سند
-  const voucherDescription = `خرید مواد اولیه - سند انبار ${document.documentNumber}${
-    paymentDescription ? ` - ${paymentDescription}` : ''
-  }`;
+  const voucherDescription = `خرید مواد اولیه از ${supplierDetailAccount?.name || 'تامین‌کننده'} - سند انبار ${document.documentNumber}${
+  paymentDescription ? ` - ${paymentDescription}` : ''
+}`;
 
   // ایجاد سند حسابداری
   const voucher = await tx.voucher.create({

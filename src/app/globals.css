@@ -434,3 +434,84 @@ body.dropdown-open {
 .badge-success { background-color: #28a745; }
 .badge-danger { background-color: #dc3545; }
 .badge-secondary { background-color: #6c757d; }
+
+
+
+
+/* =========================================
+   🔵 چاپ حرفه‌ای
+   ========================================= */
+
+#print-area {
+  display: none;
+}
+
+/* فقط هنگام چاپ فعال شود */
+@media print {
+
+  /* کل صفحه غیر از print-area مخفی شود */
+  body * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* بخش چاپ */
+  #print-area,
+  #print-area * {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  #print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+
+  /* صفحه A4 */
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  body {
+    font-family: "Tahoma", "IRANSans", sans-serif;
+  }
+
+  /* جدول هدر */
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .print-table td {
+    border: 1px solid #000;
+    padding: 6px;
+    font-size: 13px;
+  }
+
+  /* جدول اصلی */
+  .print-ledger-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .print-ledger-table th {
+    border: 1px solid #000;
+    padding: 6px;
+    background: #eee !important;
+    -webkit-print-color-adjust: exact;
+    font-weight: bold;
+  }
+
+  .print-ledger-table td {
+    border: 1px solid #000;
+    padding: 5px;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

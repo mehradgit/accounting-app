@@ -1,0 +1,53 @@
+/* ===============================
+   حالت نمایش
+================================ */
+#print-area {
+  display: none;
+}
+
+/* ===============================
+   حالت پرینت
+================================ */
+@media print {
+
+  /* فقط بخش پرینت دیده شود */
+  body * {
+    visibility: hidden !important;
+  }
+
+  #print-area,
+  #print-area * {
+    visibility: visible !important;
+  }
+
+  #print-area {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+
+  /* سایز A4 استاندارد */
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  .print-header-table td,
+  .print-ledger-table td,
+  .print-ledger-table th {
+    padding: 6px !important;
+    border: 1px solid #000 !important;
+  }
+
+  .print-title {
+    font-size: 20px;
+    margin-bottom: 15px;
+  }
+
+  /* عناصر معمولی سایت مخفی شوند */
+  .no-print {
+    display: none !important;
+  }
+}
