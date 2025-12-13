@@ -187,7 +187,7 @@ export default function Dashboard() {
   return (
     <Box
       sx={{
-        width: '100vw',
+        // width: '100vw',
         minHeight: '100vh',
         background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
         p: { xs: 2, md: 4 },

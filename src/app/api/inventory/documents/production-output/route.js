@@ -138,14 +138,14 @@ export async function POST(request) {
         }
       });
       
-      // پیدا کردن حساب تفصیلی موجودی کالای ساخته شده
+      // پیدا کردن حساب تفصیلی موجودی کالای ساخته شده - اصلاح شده
       const finishedGoodsDetailAccount = await prisma.detailAccount.findFirst({
         where: {
           OR: [
             { code: '1-04-0002' }, // مثال: حساب کالای ساخته شده
             { name: { contains: 'ساخته شده' } },
-            // یا از حساب مرتبط با محصول استفاده کن
-            { id: product.detailAccountId }
+            // فقط اگر product.detailAccountId وجود داشت، آن را اضافه کنید
+            ...(product.detailAccountId ? [{ id: product.detailAccountId }] : [])
           ]
         },
         include: {

@@ -1,33 +1,39 @@
-// src/app/inventory/documents/purchase-materials/page.js - کد کامل
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import ProductSearchSelect from "@/components/ProductSearchSelect";
+
+/**
+ * Purchase Materials Page (final)
+ * - ProductSearchSelect (server-side search, portal) for product selection
+ * - Quantity default: empty string
+ * - Unit price: text input with live formatting (thousand separators + Persian digits in display)
+ * - Keyboard: ArrowUp/ArrowDown within ProductSearchSelect; Enter navigation between fields;
+ *   when on description of last row + Enter => add new row and focus product input
+ */
 
 export default function PurchaseMaterialsPage() {
   const router = useRouter();
+
+  // loading and lookups
   const [loading, setLoading] = useState(false);
   const [warehouses, setWarehouses] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [suppliers, setSuppliers] = useState([]); // از حساب‌های تفصیلی با کد معین 3-02-0001
-  const [detailAccounts, setDetailAccounts] = useState([]);
-  const [bankAccounts, setBankAccounts] = useState([]); // حساب‌های بانکی با کد معین 1-01-0001
+  const [suppliers, setSuppliers] = useState([]);
+  const [bankAccounts, setBankAccounts] = useState([]);
   const [expenseAccounts, setExpenseAccounts] = useState([]);
 
+  // form state
   const [formData, setFormData] = useState({
     invoiceNumber: "",
     invoiceDate: new Date().toISOString().split("T")[0],
     warehouseId: "",
     supplierDetailAccountId: "",
     description: "",
-
-    // اطلاعات پرداخت
-    paymentMethod: "", // 'cash', 'transfer', 'cheque', 'credit'
+    paymentMethod: "", // cash, transfer, cheque, credit
     expenseDetailAccountId: "",
     bankDetailAccountId: "",
     paymentDescription: "",
-
-    // اطلاعات چک (اگر پرداخت چکی است)
     chequeData: {
       chequeNumber: "",
       amount: "",
@@ -35,10 +41,11 @@ export default function PurchaseMaterialsPage() {
       dueDate: "",
       description: "",
     },
-
-    // مواد خریداری شده
+    // materials: quantity & unitPrice are strings (normalized for calculations)
     materials: [],
   });
+
+  const tableRef = useRef(null);
 
   useEffect(() => {
     fetchInitialData();
@@ -47,123 +54,88 @@ export default function PurchaseMaterialsPage() {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-
-      console.log("📦 شروع بارگذاری داده‌های اولیه...");
-
-      // بارگذاری موازی داده‌ها
       const [
         warehousesRes,
-        productsRes,
         suppliersRes,
         bankAccountsRes,
         expenseAccountsRes,
       ] = await Promise.all([
         fetch("/api/inventory/warehouses"),
-        fetch("/api/inventory/products"),
         fetch("/api/detail-accounts/for-trade-creditors"),
         fetch("/api/detail-accounts/for-bank-accounts"),
         fetch("/api/detail-accounts/for-expense-accounts"),
       ]);
 
-      // ۱. پردازش انبارها
       if (warehousesRes.ok) {
         const data = await warehousesRes.json();
         setWarehouses(data.warehouses || []);
-        console.log("✅ انبارها بارگذاری شد:", data.warehouses?.length || 0);
-      } else {
-        console.error("❌ خطا در دریافت انبارها:", warehousesRes.status);
       }
-
-      // ۲. پردازش محصولات
-      if (productsRes.ok) {
-        const data = await productsRes.json();
-        setProducts(data.products || []);
-        console.log("✅ محصولات بارگذاری شد:", data.products?.length || 0);
-      } else {
-        console.error("❌ خطا در دریافت محصولات:", productsRes.status);
-      }
-
-      // ۳. پردازش تامین‌کنندگان (حساب‌های تفصیلی با کد معین 3-02-0001)
       if (suppliersRes.ok) {
         const data = await suppliersRes.json();
         setSuppliers(data.accounts || []);
-        console.log(
-          "✅ تامین‌کنندگان بارگذاری شد:",
-          data.accounts?.length || 0
-        );
-
-        // نمایش جزئیات برای دیباگ
-        (data.accounts || []).forEach((acc, idx) => {
-          console.log(
-            `   ${idx + 1}. ${acc.code} - ${acc.name} - شخص: ${
-              acc.person?.name || "ندارد"
-            }`
-          );
-        });
-      } else {
-        console.error("❌ خطا در دریافت تامین‌کنندگان:", suppliersRes.status);
       }
-
-      // ۴. پردازش حساب‌های بانکی (با کد معین 1-01-0001)
       if (bankAccountsRes.ok) {
         const data = await bankAccountsRes.json();
         setBankAccounts(data.accounts || []);
-        console.log(
-          "✅ حساب‌های بانکی بارگذاری شد:",
-          data.accounts?.length || 0
-        );
-
-        // نمایش جزئیات برای دیباگ
-        (data.accounts || []).forEach((acc, idx) => {
-          console.log(
-            `   ${idx + 1}. ${acc.code} - ${acc.name} - معین: ${
-              acc.subAccount?.code || "ندارد"
-            }`
-          );
-        });
-      } else {
-        console.error(
-          "❌ خطا در دریافت حساب‌های بانکی:",
-          bankAccountsRes.status
-        );
       }
-
-      // ۵. پردازش حساب‌های هزینه/خرید
       if (expenseAccountsRes.ok) {
         const data = await expenseAccountsRes.json();
         setExpenseAccounts(data.accounts || []);
-        console.log(
-          "✅ حساب‌های هزینه بارگذاری شد:",
-          data.accounts?.length || 0
-        );
-      } else {
-        console.error(
-          "❌ خطا در دریافت حساب‌های هزینه:",
-          expenseAccountsRes.status
-        );
       }
-    } catch (error) {
-      console.error("❌ خطا در بارگذاری داده‌ها:", error);
+    } catch (err) {
+      console.error("Error loading initial data:", err);
       alert("خطا در بارگذاری اطلاعات اولیه");
     } finally {
       setLoading(false);
     }
   };
 
-  // توابع مدیریت مواد اولیه
+  // --- helpers for Persian formatting and normalization ---
+  const PERSIAN_DIGITS = ["۰","۱","۲","۳","۴","۵","۶","۷","۸","۹"];
+  const PERSIAN_TO_LATIN = { "۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9" };
+
+  const toPersianDigits = (str) =>
+    String(str).replace(/\d/g, (d) => PERSIAN_DIGITS[Number(d)]);
+
+  const formatNumberToPersian = (value, maxDecimals = 3) => {
+    if (value === "" || value === null || value === undefined) return "";
+    const num = Number(value) || 0;
+    const isFloat = Math.abs(num - Math.round(num)) > 1e-12;
+    let str;
+    if (isFloat) str = num.toFixed(maxDecimals).replace(/\.?0+$/, "");
+    else str = Math.round(num).toString();
+    const parts = str.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return toPersianDigits(parts.join("."));
+  };
+
+  const normalizeNumberString = (s) => {
+    if (s === "" || s === null || s === undefined) return "";
+    let t = String(s);
+    // replace Persian digits
+    t = t.replace(/[۰-۹]/g, (d) => PERSIAN_TO_LATIN[d] || d);
+    // remove thousands separators (Arabic and latin)
+    t = t.replace(/[٬,]/g, "");
+    // keep digits and decimal point
+    t = t.replace(/[^0-9.]/g, "");
+    // keep only first decimal point
+    const parts = t.split(".");
+    if (parts.length > 1) {
+      t = parts.shift() + "." + parts.join("");
+    }
+    return t;
+  };
+
+  // --- materials management ---
   const addMaterial = () => {
     setFormData((prev) => ({
       ...prev,
       materials: [
         ...prev.materials,
-        {
-          productId: "",
-          quantity: 1,
-          unitPrice: 0,
-          description: "",
-        },
+        { productId: "", quantity: "", unitPrice: "", description: "" },
       ],
     }));
+    // focus will be handled by keyboard handlers or selection logic
   };
 
   const removeMaterial = (index) => {
@@ -174,35 +146,120 @@ export default function PurchaseMaterialsPage() {
   };
 
   const updateMaterial = (index, field, value) => {
-    const newMaterials = [...formData.materials];
-    newMaterials[index][field] = value;
-    setFormData((prev) => ({ ...prev, materials: newMaterials }));
+    setFormData((prev) => {
+      const newMaterials = [...prev.materials];
+      newMaterials[index] = { ...newMaterials[index], [field]: value };
+      return { ...prev, materials: newMaterials };
+    });
   };
 
-  const handleProductSelect = (index, productId) => {
-    const product = products.find((p) => p.id === parseInt(productId));
-    if (product && product.defaultPurchasePrice > 0) {
-      updateMaterial(index, "unitPrice", product.defaultPurchasePrice);
+  // when a product is selected, optionally prefill unitPrice (raw string)
+  const handleProductSelect = async (index, productId) => {
+    if (!productId) {
+      updateMaterial(index, "productId", "");
+      return;
     }
-    updateMaterial(index, "productId", productId);
+    try {
+      const res = await fetch(`/api/inventory/products/${productId}`);
+      if (res.ok) {
+        const p = await res.json();
+        if (p?.defaultPurchasePrice > 0) {
+          // store raw numeric string
+          updateMaterial(index, "unitPrice", String(p.defaultPurchasePrice));
+        }
+        updateMaterial(index, "productId", String(productId));
+      } else {
+        updateMaterial(index, "productId", String(productId));
+      }
+    } catch (err) {
+      console.error("Error fetching product detail:", err);
+      updateMaterial(index, "productId", String(productId));
+    }
   };
 
-  // تابع محاسبه جمع کل
-  const calculateTotal = () => {
-    return formData.materials.reduce((sum, item) => {
-      const quantity = parseFloat(item.quantity) || 0;
-      const unitPrice = parseFloat(item.unitPrice) || 0;
-      return sum + quantity * unitPrice;
+  // unit price input handler (store normalized numeric string)
+  const handleUnitPriceChange = (index, rawValue) => {
+    const normalized = normalizeNumberString(rawValue);
+    updateMaterial(index, "unitPrice", normalized);
+  };
+
+  // calculate totals using numeric parseFloat
+  const calculateTotal = () =>
+    formData.materials.reduce((sum, item) => {
+      const q = parseFloat(item.quantity) || 0;
+      const p = parseFloat(item.unitPrice) || 0;
+      return sum + q * p;
     }, 0);
+
+  const totalQuantityValue = formData.materials.reduce(
+    (sum, item) => sum + (parseFloat(item.quantity) || 0),
+    0
+  );
+
+  // --- keyboard navigation: Enter moves to next focusable; at last description => add row ---
+  const focusProductInput = (rowIndex) => {
+    const el = document.querySelector(`input[data-row="${rowIndex}"][data-field="product-input"]`);
+    if (el) el.focus();
   };
 
+  const handleEnterNavigation = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+
+    const tableEl = tableRef.current;
+    if (!tableEl) return;
+
+    const focusable = tableEl.querySelectorAll(
+      'input:not([type="button"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
+    );
+    const arr = Array.from(focusable);
+    const active = document.activeElement;
+    const idx = arr.indexOf(active);
+    if (idx === -1) return;
+
+    // determine if current is description of last row
+    const field = active.getAttribute("data-field");
+    const rowAttr = active.getAttribute("data-row");
+    const row = rowAttr ? Number(rowAttr) : -1;
+    const lastRowIndex = formData.materials.length - 1;
+
+    if (field === "description" && row === lastRowIndex) {
+      // add new row then focus its product input
+      addMaterial();
+      setTimeout(() => {
+        focusProductInput(lastRowIndex + 1);
+      }, 50);
+      return;
+    }
+
+    // otherwise focus next focusable element
+    const next = arr[idx + 1];
+    if (next) {
+      next.focus();
+    } else {
+      // nothing next
+    }
+  };
+
+  // --- submit form (validation + payload) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // اعتبارسنجی
     if (formData.materials.length === 0) {
       alert("حداقل یک ماده اولیه باید اضافه شود");
       return;
+    }
+
+    for (let i = 0; i < formData.materials.length; i++) {
+      if (!formData.materials[i].productId) {
+        alert(`ردیف ${i + 1}: کالا انتخاب نشده است`);
+        return;
+      }
+      // optional: require quantity
+      if (!formData.materials[i].quantity || parseFloat(formData.materials[i].quantity) <= 0) {
+        alert(`ردیف ${i + 1}: مقدار تعداد را وارد کنید`);
+        return;
+      }
     }
 
     if (!formData.warehouseId) {
@@ -210,194 +267,102 @@ export default function PurchaseMaterialsPage() {
       return;
     }
 
-    // اگر روش پرداخت مشخص شده، حساب هزینه باید مشخص باشد
-    if (formData.paymentMethod && !formData.expenseDetailAccountId) {
-      alert("برای ثبت پرداخت، حساب هزینه/خرید را انتخاب کنید");
-      return;
-    }
-
-    // اگر پرداخت حواله یا چک است، حساب بانک باید مشخص باشد
-    if (
-      (formData.paymentMethod === "transfer" ||
-        formData.paymentMethod === "cheque") &&
-      !formData.bankDetailAccountId
-    ) {
-      alert("برای این روش پرداخت، حساب بانک را انتخاب کنید");
-      return;
-    }
-
-    // اگر پرداخت چکی است، اطلاعات چک را بررسی کن
-    if (formData.paymentMethod === "cheque") {
-      if (
-        !formData.chequeData.chequeNumber ||
-        !formData.chequeData.amount ||
-        !formData.chequeData.issueDate ||
-        !formData.chequeData.dueDate
-      ) {
-        alert("لطفاً اطلاعات کامل چک را وارد کنید");
-        return;
-      }
-    }
-
-    // اگر خرید نسیه است، تامین‌کننده باید انتخاب شده باشد
-    if (
-      formData.paymentMethod === "credit" &&
-      !formData.supplierDetailAccountId
-    ) {
-      alert("برای خرید نسیه، تامین‌کننده را انتخاب کنید");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      // محاسبه مجموع مقادیر
-      const totalQuantity = formData.materials.reduce(
-        (sum, item) => sum + (parseFloat(item.quantity) || 0),
-        0
-      );
+      // compute totals
+      const totalQuantity = formData.materials.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
+      const totalAmount = calculateTotal();
 
-      const totalAmount = formData.materials.reduce((sum, item) => {
-        const quantity = parseFloat(item.quantity) || 0;
-        const unitPrice = parseFloat(item.unitPrice) || 0;
-        return sum + quantity * unitPrice;
-      }, 0);
-
-      // پیدا کردن personId از حساب تفصیلی تامین‌کننده
+      // find personId if supplier selected
       let personId = null;
       if (formData.supplierDetailAccountId) {
-        const selectedSupplier = suppliers.find(
-          (s) => s.id === parseInt(formData.supplierDetailAccountId)
-        );
-        if (selectedSupplier?.person) {
-          personId = selectedSupplier.person.id;
-        }
+        const sel = suppliers.find((s) => String(s.id) === String(formData.supplierDetailAccountId));
+        if (sel?.person) personId = sel.person.id;
       }
 
-      // پیدا کردن نوع تراکنش خرید (پیش‌فرض نوع 1 برای خرید)
-      const transactionTypeResponse = await fetch(
-        "/api/inventory/transaction-types?code=PURCHASE"
-      );
-      let transactionTypeId = 1; // پیش‌فرض
-
-      if (transactionTypeResponse.ok) {
-        const transactionTypes = await transactionTypeResponse.json();
-        const purchaseType = Array.isArray(transactionTypes)
-          ? transactionTypes.find(
-              (t) => t.code === "PURCHASE" || t.name.includes("خرید")
-            )
-          : (transactionTypes.types || []).find(
-              (t) => t.code === "PURCHASE" || t.name.includes("خرید")
-            );
-
-        if (purchaseType) {
-          transactionTypeId = purchaseType.id;
+      // transaction type lookup (optional)
+      let transactionTypeId = 1;
+      try {
+        const ttRes = await fetch("/api/inventory/transaction-types?code=PURCHASE");
+        if (ttRes.ok) {
+          const tt = await ttRes.json();
+          const purchaseType = Array.isArray(tt)
+            ? tt.find((t) => t.code === "PURCHASE" || (t.name || "").includes("خرید"))
+            : (tt.types || []).find((t) => t.code === "PURCHASE" || (t.name || "").includes("خرید"));
+          if (purchaseType) transactionTypeId = purchaseType.id;
         }
+      } catch (err) {
+        console.warn("Transaction type fetch failed, using default", err);
       }
 
-      // آماده‌سازی payload
       const payload = {
         typeId: transactionTypeId,
         warehouseId: parseInt(formData.warehouseId),
-        personId: personId,
+        personId,
         documentDate: formData.invoiceDate,
-        referenceNumber: formData.invoiceNumber,
-        description: formData.description,
-        items: formData.materials.map((item) => ({
-          productId: parseInt(item.productId),
-          quantity: parseFloat(item.quantity),
-          unitPrice: parseFloat(item.unitPrice),
-          description: item.description || "",
+        referenceNumber: formData.invoiceNumber || null,
+        description: formData.description || null,
+        items: formData.materials.map((m) => ({
+          productId: parseInt(m.productId),
+          quantity: parseFloat(m.quantity) || 0,
+          unitPrice: parseFloat(m.unitPrice) || 0,
+          description: m.description || "",
         })),
-
-        // اطلاعات پرداخت
-        paymentMethod: formData.paymentMethod,
-        bankDetailAccountId: formData.bankDetailAccountId
-          ? parseInt(formData.bankDetailAccountId)
-          : null,
-        expenseDetailAccountId: formData.expenseDetailAccountId
-          ? parseInt(formData.expenseDetailAccountId)
-          : null,
-        supplierDetailAccountId: formData.supplierDetailAccountId
-          ? parseInt(formData.supplierDetailAccountId)
-          : null,
-        paymentDescription: formData.paymentDescription,
-        chequeData:
-          formData.paymentMethod === "cheque" ? formData.chequeData : null,
-
-        // اطلاعات محاسباتی
+        paymentMethod: formData.paymentMethod || null,
+        bankDetailAccountId: formData.bankDetailAccountId ? parseInt(formData.bankDetailAccountId) : null,
+        expenseDetailAccountId: formData.expenseDetailAccountId ? parseInt(formData.expenseDetailAccountId) : null,
+        supplierDetailAccountId: formData.supplierDetailAccountId ? parseInt(formData.supplierDetailAccountId) : null,
+        paymentDescription: formData.paymentDescription || null,
+        chequeData: formData.paymentMethod === "cheque" ? formData.chequeData : null,
         totalQuantity,
         totalAmount,
       };
 
-      console.log("📤 ارسال داده‌های خرید مواد اولیه:", payload);
-
-      const response = await fetch("/api/inventory/documents/create", {
+      const res = await fetch("/api/inventory/documents/create", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data = await res.json();
 
-      if (response.ok) {
-        let successMessage = "✅ خرید مواد اولیه با موفقیت ثبت شد";
-
-        if (data.voucher) {
-          successMessage += `\n📄 سند حسابداری: ${data.voucher.voucherNumber}`;
-        }
-
-        if (data.cheque) {
-          successMessage += `\n🧾 چک ثبت شده: ${data.cheque.chequeNumber}`;
-        }
-
-        alert(successMessage);
-
-        // بازگشت به لیست اسناد
+      if (res.ok) {
+        let msg = "✅ خرید مواد اولیه با موفقیت ثبت شد";
+        if (data.voucher) msg += `\n📄 سند: ${data.voucher.voucherNumber}`;
+        if (data.cheque) msg += `\n🧾 چک: ${data.cheque.chequeNumber}`;
+        alert(msg);
         router.push("/inventory/documents");
         router.refresh();
       } else {
-        throw new Error(data.error || data.message || "خطا در ثبت خرید");
+        throw new Error(data.error || data.message || "خطا در ثبت");
       }
-    } catch (error) {
-      console.error("❌ خطا در ثبت خرید:", error);
-      alert(`خطا در ثبت خرید: ${error.message}`);
+    } catch (err) {
+      console.error("Submit error:", err);
+      alert(`خطا در ثبت خرید: ${err.message || err}`);
     } finally {
       setLoading(false);
     }
   };
 
+  // render
   return (
     <div className="container-fluid py-4">
-      {/* هدر صفحه */}
+      {/* header */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h1 className="h2 mb-2">🛒 خرید مواد اولیه</h1>
-          <p className="text-muted mb-0">
-            ثبت خرید مواد اولیه با قابلیت ایجاد خودکار سند حسابداری
-          </p>
-          <small className="text-info">
-            <i className="bi bi-info-circle me-1"></i>
-            تامین‌کنندگان از حساب‌های تفصیلی با کد معین 3-02-0001 بارگذاری
-            می‌شوند
-          </small>
+          <p className="text-muted mb-0">ثبت خرید مواد اولیه و ایجاد سند حسابداری</p>
         </div>
-        <div className="d-flex gap-2">
-          <button
-            onClick={() => router.back()}
-            className="btn btn-outline-secondary"
-            disabled={loading}
-          >
+        <div>
+          <button onClick={() => router.back()} className="btn btn-outline-secondary" disabled={loading}>
             بازگشت
           </button>
         </div>
       </div>
 
-      {/* فرم خرید */}
       <form onSubmit={handleSubmit}>
-        {/* بخش اطلاعات فاکتور و تامین‌کننده */}
+        {/* Purchase info */}
         <div className="card mb-4">
           <div className="card-header bg-primary bg-opacity-10">
             <h5 className="mb-0">📋 اطلاعات خرید</h5>
@@ -405,113 +370,60 @@ export default function PurchaseMaterialsPage() {
           <div className="card-body">
             <div className="row g-3">
               <div className="col-md-4">
-                <label className="form-label">
-                  شماره فاکتور <span className="text-danger">*</span>
-                </label>
+                <label className="form-label">شماره فاکتور</label>
                 <input
                   type="text"
                   className="form-control"
                   value={formData.invoiceNumber}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      invoiceNumber: e.target.value,
-                    }))
-                  }
-                  required
-                  placeholder="مثال: INV-1402-001"
+                  onChange={(e) => setFormData((p) => ({ ...p, invoiceNumber: e.target.value }))}
                   disabled={loading}
                 />
               </div>
 
               <div className="col-md-4">
-                <label className="form-label">
-                  تاریخ فاکتور <span className="text-danger">*</span>
-                </label>
+                <label className="form-label">تاریخ فاکتور</label>
                 <input
                   type="date"
                   className="form-control"
                   value={formData.invoiceDate}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      invoiceDate: e.target.value,
-                    }))
-                  }
-                  required
+                  onChange={(e) => setFormData((p) => ({ ...p, invoiceDate: e.target.value }))}
                   disabled={loading}
                 />
               </div>
 
               <div className="col-md-4">
-                <label className="form-label">
-                  انبار مقصد <span className="text-danger">*</span>
-                </label>
+                <label className="form-label">انبار مقصد</label>
                 <select
                   className="form-select"
                   value={formData.warehouseId}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      warehouseId: e.target.value,
-                    }))
-                  }
-                  required
+                  onChange={(e) => setFormData((p) => ({ ...p, warehouseId: e.target.value }))}
                   disabled={loading}
+                  required
                 >
-                  <option value="">
-                    {loading ? "در حال بارگذاری..." : "انتخاب انبار"}
-                  </option>
-                  {warehouses.map((wh) => (
-                    <option key={wh.id} value={wh.id}>
-                      {wh.name} ({wh.code})
+                  <option value="">{loading ? "در حال بارگذاری..." : "انتخاب انبار"}</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} ({w.code})
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* انتخاب تامین‌کننده از حساب‌های تفصیلی */}
               <div className="col-md-6">
-                <label className="form-label">
-                  تامین‌کننده
-                  <span className="text-muted small d-block">
-                    از حساب‌های تفصیلی با کد معین 3-02-0001
-                  </span>
-                </label>
+                <label className="form-label">تامین‌کننده</label>
                 <select
                   className="form-select"
                   value={formData.supplierDetailAccountId}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      supplierDetailAccountId: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setFormData((p) => ({ ...p, supplierDetailAccountId: e.target.value }))}
                   disabled={loading}
                 >
                   <option value="">انتخاب تامین‌کننده (اختیاری)</option>
-                  {suppliers.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>
-                      {supplier.code} - {supplier.name}
-                      {supplier.person && ` (${supplier.person.name})`}
-                      {supplier.subAccount && ` [${supplier.subAccount.code}]`}
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} - {s.name} {s.person && `(${s.person.name})`}
                     </option>
                   ))}
                 </select>
-
-                {/* راهنمای ایجاد تامین‌کننده */}
-                {suppliers.length === 0 && !loading && (
-                  <div className="alert alert-warning mt-2 p-2 small">
-                    <i className="bi bi-exclamation-triangle me-1"></i>
-                    تامین‌کننده‌ای یافت نشد.
-                    <a
-                      href="/persons/create?type=supplier"
-                      className="text-decoration-none ms-1"
-                    >
-                      از اینجا یک تامین‌کننده جدید ایجاد کنید
-                    </a>
-                  </div>
-                )}
               </div>
 
               <div className="col-md-6">
@@ -520,13 +432,7 @@ export default function PurchaseMaterialsPage() {
                   type="text"
                   className="form-control"
                   value={formData.description}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      description: e.target.value,
-                    }))
-                  }
-                  placeholder="شرح خرید مواد اولیه..."
+                  onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
                   disabled={loading}
                 />
               </div>
@@ -534,257 +440,148 @@ export default function PurchaseMaterialsPage() {
           </div>
         </div>
 
-        {/* بخش پرداخت */}
+        {/* Payment */}
         <div className="card mb-4">
           <div className="card-header bg-info bg-opacity-10">
             <h5 className="mb-0">💰 اطلاعات پرداخت</h5>
           </div>
           <div className="card-body">
-            {/* انتخاب روش پرداخت */}
-            <div className="row mb-4">
+            <div className="row g-3">
               <div className="col-12">
-                <label className="form-label mb-3">روش پرداخت</label>
-                <div className="d-flex flex-wrap gap-3">
+                <label className="form-label">روش پرداخت</label>
+                <div className="d-flex gap-2 flex-wrap">
                   {[
-                    { id: "cash", label: "💰 پرداخت نقدی", icon: "bi-cash" },
-                    {
-                      id: "transfer",
-                      label: "🏦 پرداخت حواله",
-                      icon: "bi-bank",
-                    },
-                    { id: "cheque", label: "🧾 پرداخت چکی", icon: "bi-pen" },
-                    { id: "credit", label: "📝 خرید نسیه", icon: "bi-clock" },
-                  ].map((method) => (
+                    { id: "cash", label: "💰 پرداخت نقدی" },
+                    { id: "transfer", label: "🏦 پرداخت حواله" },
+                    { id: "cheque", label: "🧾 پرداخت چکی" },
+                    { id: "credit", label: "📝 خرید نسیه" },
+                  ].map((m) => (
                     <button
-                      key={method.id}
                       type="button"
-                      className={`btn btn-outline-${
-                        formData.paymentMethod === method.id
-                          ? "primary"
-                          : "secondary"
-                      } d-flex align-items-center`}
-                      onClick={() =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          paymentMethod: method.id,
-                        }))
-                      }
+                      key={m.id}
+                      className={`btn btn-sm ${formData.paymentMethod === m.id ? "btn-primary" : "btn-outline-secondary"}`}
+                      onClick={() => setFormData((p) => ({ ...p, paymentMethod: p.paymentMethod === m.id ? "" : m.id }))}
                       disabled={loading}
                     >
-                      <i className={`bi ${method.icon} me-2`}></i>
-                      {method.label}
+                      {m.label}
                     </button>
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* فرم‌های مربوط به هر روش پرداخت */}
-            {formData.paymentMethod && (
-              <div className="row g-3">
-                <div className="col-md-6">
-                  <label className="form-label">
-                    حساب هزینه/خرید <span className="text-danger">*</span>
-                  </label>
-                  <select
-                    className="form-select"
-                    value={formData.expenseDetailAccountId}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        expenseDetailAccountId: e.target.value,
-                      }))
-                    }
-                    required
-                    disabled={loading}
-                  >
-                    <option value="">انتخاب حساب</option>
-                    {expenseAccounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.code} - {account.name}
-                        {account.subAccount && ` (${account.subAccount.code})`}
-                      </option>
-                    ))}
-                  </select>
-                  <small className="text-muted">
-                    حساب‌های تفصیلی زیر حساب معین 6-xx-xxxx (هزینه) یا 1-04-xxxx
-                    (موجودی)
-                  </small>
-                </div>
-
-                {(formData.paymentMethod === "transfer" ||
-                  formData.paymentMethod === "cheque") && (
+              {formData.paymentMethod && (
+                <>
                   <div className="col-md-6">
-                    <label className="form-label">
-                      حساب بانک <span className="text-danger">*</span>
-                      <span className="text-muted small d-block">
-                        حساب‌های تفصیلی زیر حساب معین 1-01-0001
-                      </span>
-                    </label>
+                    <label className="form-label">حساب هزینه/خرید</label>
                     <select
                       className="form-select"
-                      value={formData.bankDetailAccountId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          bankDetailAccountId: e.target.value,
-                        }))
-                      }
-                      required
+                      value={formData.expenseDetailAccountId}
+                      onChange={(e) => setFormData((p) => ({ ...p, expenseDetailAccountId: e.target.value }))}
                       disabled={loading}
+                      required
                     >
-                      <option value="">انتخاب حساب بانک</option>
-                      {bankAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.code} - {account.name}
-                          {account.subAccount &&
-                            ` [${account.subAccount.code}]`}
+                      <option value="">انتخاب حساب</option>
+                      {expenseAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} - {a.name}
                         </option>
                       ))}
                     </select>
-
-                    {bankAccounts.length === 0 && !loading && (
-                      <div className="alert alert-warning mt-2 p-2 small">
-                        <i className="bi bi-exclamation-triangle me-1"></i>
-                        حساب بانکی یافت نشد.
-                        <a
-                          href="/detail-accounts/create?subAccountCode=1-01-0001"
-                          className="text-decoration-none ms-1"
-                        >
-                          از اینجا یک حساب بانک جدید ایجاد کنید
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="col-md-12">
-                  <label className="form-label">شرح پرداخت</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={formData.paymentDescription}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        paymentDescription: e.target.value,
-                      }))
-                    }
-                    placeholder="شرح عملیات پرداخت..."
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* فرم اطلاعات چک */}
-            {formData.paymentMethod === "cheque" && (
-              <div className="border rounded p-3 mt-3">
-                <h6 className="mb-3">🧾 اطلاعات چک</h6>
-                <div className="row g-3">
-                  <div className="col-md-4">
-                    <label className="form-label">
-                      شماره چک <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={formData.chequeData.chequeNumber}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          chequeData: {
-                            ...prev.chequeData,
-                            chequeNumber: e.target.value,
-                          },
-                        }))
-                      }
-                      required
-                      disabled={loading}
-                    />
                   </div>
 
-                  <div className="col-md-4">
-                    <label className="form-label">
-                      مبلغ چک <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={formData.chequeData.amount}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          chequeData: {
-                            ...prev.chequeData,
-                            amount: e.target.value,
-                          },
-                        }))
-                      }
-                      required
-                      disabled={loading}
-                    />
-                  </div>
-
-                  <div className="col-md-4">
-                    <label className="form-label">
-                      تاریخ سررسید <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      className="form-control"
-                      value={formData.chequeData.dueDate}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          chequeData: {
-                            ...prev.chequeData,
-                            dueDate: e.target.value,
-                          },
-                        }))
-                      }
-                      required
-                      disabled={loading}
-                    />
-                  </div>
+                  {(formData.paymentMethod === "transfer" || formData.paymentMethod === "cheque") && (
+                    <div className="col-md-6">
+                      <label className="form-label">حساب بانک</label>
+                      <select
+                        className="form-select"
+                        value={formData.bankDetailAccountId}
+                        onChange={(e) => setFormData((p) => ({ ...p, bankDetailAccountId: e.target.value }))}
+                        disabled={loading}
+                        required
+                      >
+                        <option value="">انتخاب حساب بانک</option>
+                        {bankAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} - {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   <div className="col-12">
-                    <label className="form-label">شرح چک</label>
+                    <label className="form-label">شرح پرداخت</label>
                     <input
                       type="text"
                       className="form-control"
-                      value={formData.chequeData.description}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          chequeData: {
-                            ...prev.chequeData,
-                            description: e.target.value,
-                          },
-                        }))
-                      }
-                      placeholder="شرح چک..."
+                      value={formData.paymentDescription}
+                      onChange={(e) => setFormData((p) => ({ ...p, paymentDescription: e.target.value }))}
                       disabled={loading}
                     />
                   </div>
+                </>
+              )}
+
+              {formData.paymentMethod === "cheque" && (
+                <div className="col-12 border rounded p-3">
+                  <h6>🧾 اطلاعات چک</h6>
+                  <div className="row g-3">
+                    <div className="col-md-4">
+                      <label className="form-label">شماره چک</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={formData.chequeData.chequeNumber}
+                        onChange={(e) => setFormData((p) => ({ ...p, chequeData: { ...p.chequeData, chequeNumber: e.target.value } }))}
+                        disabled={loading}
+                        required
+                      />
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label">مبلغ چک</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={formData.chequeData.amount}
+                        onChange={(e) => setFormData((p) => ({ ...p, chequeData: { ...p.chequeData, amount: e.target.value } }))}
+                        disabled={loading}
+                        required
+                      />
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label">تاریخ سررسید</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        value={formData.chequeData.dueDate}
+                        onChange={(e) => setFormData((p) => ({ ...p, chequeData: { ...p.chequeData, dueDate: e.target.value } }))}
+                        disabled={loading}
+                        required
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label">شرح چک</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={formData.chequeData.description}
+                        onChange={(e) => setFormData((p) => ({ ...p, chequeData: { ...p.chequeData, description: e.target.value } }))}
+                        disabled={loading}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
-        {/* بخش مواد اولیه */}
+        {/* Materials */}
         <div className="card mb-4">
           <div className="card-header bg-success bg-opacity-10">
             <div className="d-flex justify-content-between align-items-center">
               <h5 className="mb-0">📦 مواد اولیه خریداری شده</h5>
-              <button
-                type="button"
-                onClick={addMaterial}
-                className="btn btn-sm btn-success"
-                disabled={loading}
-              >
-                <i className="bi bi-plus-circle me-1"></i>
+              <button type="button" onClick={addMaterial} className="btn btn-sm btn-success" disabled={loading}>
                 افزودن ماده اولیه
               </button>
             </div>
@@ -792,140 +589,122 @@ export default function PurchaseMaterialsPage() {
 
           <div className="card-body">
             {formData.materials.length === 0 ? (
-              <div className="text-center py-4 text-muted">
-                <i className="bi bi-box display-4 d-block mb-3"></i>
-                هنوز ماده اولیه‌ای اضافه نشده است
-              </div>
+              <div className="text-center py-4 text-muted">هنوز ماده اولیه‌ای اضافه نشده است</div>
             ) : (
-              <>
-                {/* جدول مواد اولیه */}
-                <div className="table-responsive">
-                  <table className="table table-hover">
-                    <thead>
-                      <tr>
-                        <th>ردیف</th>
-                        <th>کالا</th>
-                        <th>تعداد</th>
-                        <th>قیمت واحد (ریال)</th>
-                        <th>جمع (ریال)</th>
-                        <th>توضیحات</th>
-                        <th>عملیات</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {formData.materials.map((material, index) => (
-                        <tr key={index}>
-                          <td>{index + 1}</td>
-                          <td>
-                            <select
-                              className="form-select form-select-sm"
-                              value={material.productId}
-                              onChange={(e) =>
-                                handleProductSelect(index, e.target.value)
-                              }
-                              required
-                              disabled={loading}
-                            >
-                              <option value="">انتخاب کالا</option>
-                              {products.map((product) => (
-                                <option key={product.id} value={product.id}>
-                                  {product.code} - {product.name}
-                                  {product.unit && ` (${product.unit.name})`}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              className="form-control form-control-sm"
-                              value={material.quantity}
-                              onChange={(e) =>
-                                updateMaterial(
-                                  index,
-                                  "quantity",
-                                  e.target.value
-                                )
-                              }
-                              min="0.001"
-                              step="0.001"
-                              style={{ width: "100px" }}
-                              required
-                              disabled={loading}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              className="form-control form-control-sm"
-                              value={material.unitPrice}
-                              onChange={(e) =>
-                                updateMaterial(
-                                  index,
-                                  "unitPrice",
-                                  e.target.value
-                                )
-                              }
-                              min="0"
-                              style={{ width: "150px" }}
-                              required
-                              disabled={loading}
-                            />
-                          </td>
-                          <td className="fw-bold">
-                            {(
-                              material.quantity * material.unitPrice
-                            ).toLocaleString()}{" "}
-                            ریال
-                          </td>
-                          <td>
-                            <input
-                              type="text"
-                              className="form-control form-control-sm"
-                              value={material.description}
-                              onChange={(e) =>
-                                updateMaterial(
-                                  index,
-                                  "description",
-                                  e.target.value
-                                )
-                              }
-                              placeholder="توضیحات..."
-                              disabled={loading}
-                            />
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-danger"
-                              onClick={() => removeMaterial(index)}
-                              disabled={loading}
-                            >
-                              <i className="bi bi-trash"></i>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr>
-                        <td colSpan="4" className="text-end fw-bold fs-5">
-                          جمع کل:
+              <div className="table-responsive">
+                <table className="table table-hover" ref={tableRef}>
+                  <thead>
+                    <tr>
+                      <th>ردیف</th>
+                      <th>کالا</th>
+                      <th>تعداد</th>
+                      <th>قیمت واحد (ریال)</th>
+                      <th>جمع (ریال)</th>
+                      <th>توضیحات</th>
+                      <th>عملیات</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {formData.materials.map((material, index) => (
+                      <tr key={index} data-row={index}>
+                        <td>{formatNumberToPersian(index + 1)}</td>
+                        <td style={{ minWidth: 260 }}>
+                          <ProductSearchSelect
+                            value={material.productId}
+                            onChange={(productId) => handleProductSelect(index, productId)}
+                            placeholder="جستجو یا انتخاب کالا..."
+                            disabled={loading}
+                            inputProps={{
+                              "data-row": String(index),
+                              "data-field": "product-input",
+                              // parent navigation: when Enter and dropdown closed, move to quantity
+                              onKeyDown: (e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  const next = document.querySelector(`input[data-row="${index}"][data-field="quantity"]`);
+                                  if (next) next.focus();
+                                }
+                              },
+                            }}
+                          />
                         </td>
-                        <td className="fw-bold fs-5 text-success">
-                          {calculateTotal().toLocaleString()} ریال
+
+                        <td>
+                          <input
+                            type="number"
+                            className="form-control form-control-sm"
+                            value={material.quantity}
+                            onChange={(e) => updateMaterial(index, "quantity", e.target.value)}
+                            min="0"
+                            step="0.001"
+                            style={{ width: "100px" }}
+                            data-row={String(index)}
+                            data-field="quantity"
+                            disabled={loading}
+                            onKeyDown={handleEnterNavigation}
+                          />
                         </td>
-                        <td colSpan="2"></td>
+
+                        <td>
+                          <input
+                            type="text"
+                            className="form-control form-control-sm text-end"
+                            value={material.unitPrice ? formatNumberToPersian(material.unitPrice, 3) : ""}
+                            onChange={(e) => handleUnitPriceChange(index, e.target.value)}
+                            inputMode="numeric"
+                            style={{ width: "150px" }}
+                            data-row={String(index)}
+                            data-field="unitPrice"
+                            disabled={loading}
+                            onKeyDown={handleEnterNavigation}
+                          />
+                        </td>
+
+                        <td className="fw-bold">
+                          {formatNumberToPersian(
+                            (parseFloat(material.quantity) || 0) * (parseFloat(material.unitPrice) || 0)
+                          )}{" "}
+                          ریال
+                        </td>
+
+                        <td>
+                          <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            value={material.description}
+                            onChange={(e) => updateMaterial(index, "description", e.target.value)}
+                            placeholder="توضیحات..."
+                            data-row={String(index)}
+                            data-field="description"
+                            disabled={loading}
+                            onKeyDown={handleEnterNavigation}
+                          />
+                        </td>
+
+                        <td>
+                          <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => removeMaterial(index)} disabled={loading}>
+                            <i className="bi bi-trash"></i>
+                          </button>
+                        </td>
                       </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </>
+                    ))}
+                  </tbody>
+
+                  <tfoot>
+                    <tr>
+                      <td colSpan="4" className="text-end fw-bold fs-5">جمع کل:</td>
+                      <td className="fw-bold fs-5 text-success">{formatNumberToPersian(calculateTotal())} ریال</td>
+                      <td colSpan="2"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             )}
           </div>
         </div>
 
-        {/* خلاصه و دکمه‌های ثبت */}
+        {/* Summary & submit */}
         <div className="row">
           <div className="col-md-4 mb-4">
             <div className="card border-success">
@@ -936,57 +715,18 @@ export default function PurchaseMaterialsPage() {
                 <div className="mb-3">
                   <div className="d-flex justify-content-between mb-2">
                     <span>تعداد اقلام:</span>
-                    <span className="fw-bold">{formData.materials.length}</span>
+                    <span className="fw-bold">{formatNumberToPersian(formData.materials.length)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-2">
                     <span>جمع تعداد:</span>
-                    <span className="fw-bold">
-                      {formData.materials.reduce(
-                        (sum, item) => sum + (parseFloat(item.quantity) || 0),
-                        0
-                      )}{" "}
-                      واحد
-                    </span>
+                    <span className="fw-bold">{formatNumberToPersian(totalQuantityValue)} واحد</span>
                   </div>
                   <hr />
                   <div className="d-flex justify-content-between">
                     <span className="fs-5">مبلغ کل خرید:</span>
-                    <span className="fs-4 fw-bold text-success">
-                      {calculateTotal().toLocaleString()} ریال
-                    </span>
+                    <span className="fs-4 fw-bold text-success">{formatNumberToPersian(calculateTotal())} ریال</span>
                   </div>
                 </div>
-
-                {formData.paymentMethod && (
-                  <div className="alert alert-info mt-3">
-                    <h6 className="alert-heading">🧾 ساختار سند حسابداری:</h6>
-                    <div className="small">
-                      <div className="d-flex justify-content-between">
-                        <span>۱. بدهکار:</span>
-                        <span>حساب خرید/موجودی</span>
-                      </div>
-                      <div className="d-flex justify-content-between">
-                        <span>۲. بستانکار:</span>
-                        <span>حساب تامین‌کننده</span>
-                      </div>
-                      <div className="d-flex justify-content-between">
-                        <span>۳. بدهکار:</span>
-                        <span>حساب تامین‌کننده</span>
-                      </div>
-                      <div className="d-flex justify-content-between">
-                        <span>۴. بستانکار:</span>
-                        <span>
-                          {formData.paymentMethod === "cash" && "صندوق"}
-                          {formData.paymentMethod === "transfer" && "حساب بانک"}
-                          {formData.paymentMethod === "cheque" &&
-                            "چک‌های پرداختنی (3-01-0001)"}
-                          {formData.paymentMethod === "credit" &&
-                            "خرید نسیه (بدون ردیف ۴)"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -1003,33 +743,20 @@ export default function PurchaseMaterialsPage() {
                   <ul className="mb-0">
                     <li>✅ موجودی مواد اولیه در انبار افزایش می‌یابد</li>
                     <li>📄 سند حسابداری متناسب با روش پرداخت ایجاد می‌شود</li>
-                    {formData.paymentMethod === "cheque" && (
-                      <li>🧾 چک پرداختی در سیستم چک‌ها ثبت می‌شود</li>
-                    )}
-                    {formData.paymentMethod === "credit" && (
-                      <li>📝 بدهی به تامین‌کننده ثبت می‌شود</li>
-                    )}
+                    {formData.paymentMethod === "cheque" && <li>🧾 چک پرداختی در سیستم چک‌ها ثبت می‌شود</li>}
+                    {formData.paymentMethod === "credit" && <li>📝 بدهی به تامین‌کننده ثبت می‌شود</li>}
                   </ul>
                 </div>
 
                 <div className="d-flex justify-content-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => router.back()}
-                    className="btn btn-outline-secondary"
-                    disabled={loading}
-                  >
+                  <button type="button" onClick={() => router.back()} className="btn btn-outline-secondary" disabled={loading}>
                     انصراف
                   </button>
 
-                  <button
-                    type="submit"
-                    className="btn btn-primary btn-lg"
-                    disabled={loading || formData.materials.length === 0}
-                  >
+                  <button type="submit" className="btn btn-primary btn-lg" disabled={loading || formData.materials.length === 0}>
                     {loading ? (
                       <>
-                        <span className="spinner-border spinner-border-sm me-2"></span>
+                        <span className="spinner-border spinner-border-sm me-2" role="status" />
                         در حال ثبت...
                       </>
                     ) : (

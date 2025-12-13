@@ -142,57 +142,59 @@ export function generateInventoryDocumentNumber() {
 
 export async function generateVoucherNumber(tx) {
   try {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
 
-    // شمارش اسناد امروز
-    const todayStart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate()
-    );
-    const todayEnd = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1
-    );
-
-    let voucherCount;
-
-    if (tx) {
-      // اگر داخل تراکنیم هستیم
-      voucherCount = await tx.voucher.count({
-        where: {
-          voucherDate: {
-            gte: todayStart,
-            lt: todayEnd,
-          },
+    // شمارنده برای این ماه
+    const counter = await tx.voucher.aggregate({
+      _count: {
+        id: true,
+      },
+      where: {
+        voucherNumber: {
+          startsWith: `V-${year}${month}`,
         },
-      });
-    } else {
-      // اگر خارج از تراکنش هستیم
-      const { PrismaClient } = await import("@prisma/client");
-      const prisma = new PrismaClient();
+      },
+    });
 
-      voucherCount = await prisma.voucher.count({
-        where: {
-          voucherDate: {
-            gte: todayStart,
-            lt: todayEnd,
-          },
-        },
-      });
+    const count = counter._count.id + 1;
+    const serial = String(count).padStart(4, "0");
 
-      await prisma.$disconnect();
+    const voucherNumber = `V-${year}${month}-${serial}`;
+
+    // بررسی عدم تکراری بودن
+    const existing = await tx.voucher.findUnique({
+      where: { voucherNumber },
+    });
+
+    if (existing) {
+      // اگر تکراری بود، شماره بعدی را امتحان کن
+      return generateUniqueVoucherNumber(tx, year, month, count + 1);
     }
 
-    const sequenceNumber = (voucherCount + 1).toString().padStart(4, "0");
-    return `${year}${month}${sequenceNumber}`;
+    return voucherNumber;
   } catch (error) {
-    console.error("خطا در تولید شماره سند:", error);
-    // شماره سند اضطراری
-    const timestamp = Date.now().toString().slice(-6);
-    return `V-${timestamp}`;
+    console.error("❌ خطا در تولید شماره سند:", error);
+    // شماره اضطراری
+    return `V-${Date.now()}`;
   }
+}
+
+async function generateUniqueVoucherNumber(tx, year, month, startCount) {
+  for (let i = startCount; i < startCount + 100; i++) {
+    const serial = String(i).padStart(4, "0");
+    const voucherNumber = `V-${year}${month}-${serial}`;
+
+    const existing = await tx.voucher.findUnique({
+      where: { voucherNumber },
+    });
+
+    if (!existing) {
+      return voucherNumber;
+    }
+  }
+
+  // اگر همه تکراری بودند، از timestamp استفاده کن
+  return `V-${year}${month}-${Date.now().toString().slice(-4)}`;
 }

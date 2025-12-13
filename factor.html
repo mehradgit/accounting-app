@@ -1,337 +1,205 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-    <meta charset="UTF-8">
-    <title>فاکتور فروش (با نمونه کالا)</title>
-    <style>
-        /* تنظیمات پایه */
-        body {
-            font-family: 'Tahoma', Arial, sans-serif;
-            font-size: 13px;
-            margin: 0;
-            padding: 0;
-            direction: rtl; 
-            background-color: #f0f0f0; 
-        }
+<meta charset="UTF-8">
+<title>فاکتور فروش پارسیان</title>
 
-        .invoice-container {
-            width: 800px;
-            margin: 20px auto;
-            border: 1px solid #000;
-            background-color: #fff;
-            padding: 10px;
-            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1);
-        }
+<style>
+@page {
+    size: A4;
+    margin: 15mm;
+}
 
-        /* --- بخش سربرگ --- */
+body {
+    font-family: Tahoma, sans-serif;
+    background: #fff;
+    margin: 0;
+    padding: 0;
+}
 
-        .header-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            padding-bottom: 5px;
-            margin-bottom: 10px;
-        }
+.invoice-box {
+    width: 100%;
+    border: 2px solid #000;
+    padding: 18px 22px;
+    box-sizing: border-box;
+}
 
-        .header-info-left {
-            display: flex;
-            gap: 15px;
-            font-size: 11px;
-            background-color: #F0F0F0; 
-            border: 1px solid #808080;
-            padding: 3px 5px;
-        }
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
 
-        .header-title {
-            background-color: #D3E7FF; 
-            color: #000;
-            padding: 3px 15px;
-            font-size: 14px;
-            font-weight: bold;
-            border: 1px solid #000;
-            cursor: pointer;
-            box-shadow: 1px 1px 0px #fff inset, -1px -1px 0px #808080 inset; 
-        }
-        
-        .header-info-right {
-             display: flex;
-             gap: 10px;
-             font-size: 12px;
-        }
-        
-        .header-input {
-             border: 1px solid #808080;
-             padding: 2px 5px;
-             background-color: #fff;
-             width: 50px;
-             text-align: center;
-        }
+.logo img {
+    width: 110px;
+}
 
-        /* --- جدول اقلام کالا --- */
+.title {
+    flex: 1;
+    text-align: center;
+    font-size: 22px;
+    font-weight: bold;
+}
 
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
+.info-box {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+    font-size: 14px;
+    line-height: 1.9;
+}
 
-        .items-table th, .items-table td {
-            border: 1px solid #000;
-            padding: 5px;
-            text-align: center;
-        }
-        
-        /* برای ستون شرح کالا، متن را به راست می‌برد */
-        .items-table .description-col {
-            text-align: right; 
-        }
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 18px;
+    font-size: 14px;
+}
 
+table th {
+    background: #e6e6e6;
+    border: 1px solid #000;
+    padding: 6px;
+    font-weight: bold;
+    text-align: center;
+}
 
-        .items-table th {
-            background-color: #D3E7FF; 
-            font-weight: bold;
-            font-size: 12px;
-            white-space: nowrap;
-        }
-        
-        .items-table .colored-col {
-            background-color: #FFFFCC; 
-        }
-        
-        .items-table .description-col {
-            background-color: #E0F7FA; 
-        }
-        
-        /* افزایش ارتفاع ردیف‌های خالی برای شبیه‌سازی فضای خالی زیاد در وسط */
-        .items-table tbody tr {
-            height: 25px; 
-        }
-        
-        /* برای ردیف‌های پرشده، ارتفاع کمتری تنظیم می‌کنیم */
-        .items-table tbody tr:nth-child(-n+3) {
-            height: auto; 
-        }
-        
-        /* --- بخش فوتر --- */
+table td {
+    border: 1px solid #000;
+    padding: 6px;
+    text-align: center;
+    vertical-align: middle;
+}
 
-        .footer-grid {
-            display: grid;
-            grid-template-columns: 30% 70%; 
-            margin-top: 15px;
-        }
+.footer-box {
+    margin-top: 18px;
+    background: #e6e6e6;
+    font-weight: bold;
+    border: 1px solid #000;
+    padding: 10px;
+    font-size: 15px;
+}
 
-        .footer-left {
-            padding: 5px;
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        
-        .footer-right {
-            padding: 5px;
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
+.section {
+    margin-top: 18px;
+    font-size: 15px;
+}
 
-        /* کادرهای مشخص در فوتر (موجودی، جمع فرعی) */
-        .box-style {
-            border: 1px solid #808080;
-            padding: 5px;
-            background-color: #F0F0F0;
-            font-size: 12px;
-        }
-        
-        .box-style.inventory {
-             background-color: #F0F0F0; 
-             padding: 5px 10px;
-             margin-bottom: 5px;
-        }
+.sign-area {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 50px;
+    font-size: 15px;
+}
+</style>
 
-        .summary-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 2px 0;
-        }
-        
-        .summary-label {
-             font-weight: bold;
-             padding-left: 10px;
-        }
-        
-        .summary-value {
-             border: 1px solid #808080;
-             background-color: #E0F7FA; 
-             width: 150px;
-             text-align: left;
-             padding: 2px 5px;
-        }
-        
-        /* بخش آدرس */
-        .address-box {
-            border: 1px solid #000;
-            padding: 8px;
-            background-color: #fff;
-            margin-top: 10px;
-        }
-        
-        .address-box p {
-            margin: 3px 0;
-            font-size: 12px;
-            display: flex;
-            gap: 5px;
-        }
-        
-        .address-box span {
-             border: 1px solid #808080;
-             background-color: #fff;
-             padding: 1px 3px;
-             width: 150px;
-        }
-        
-        .address-label {
-             width: 80px;
-             text-align: right;
-        }
-
-        /* محل دکمه "امضای کلیه" در پایین */
-        .footer-button {
-            text-align: left;
-            margin-top: 15px;
-        }
-        
-        .footer-button span {
-            font-size: 11px;
-            padding: 3px 8px;
-            background-color: #D3E7FF;
-            border: 1px solid #000;
-            box-shadow: 1px 1px 0px #fff inset, -1px -1px 0px #808080 inset;
-            cursor: pointer;
-        }
-
-    </style>
 </head>
 <body>
 
-<div class="invoice-container">
-    
-    <div class="header-top">
-        <div class="header-info-left">
-            <span>تاریخ: ۱۷ / ۰۴ / ۱۴۰۴</span>
-            <span>زمان ثبت: ۰۰:۰۰</span>
-            <span>سند حسابداری: **...**</span>
-        </div>
-        
-        <div class="header-title">فاکتور فروش</div>
-        
-        <div class="header-info-right">
-            <span>فاکتور: <span class="header-input">۰۰۰۱</span></span>
-            <span>مشتری: <span class="header-input">۰۰</span> **...**</span>
-        </div>
-    </div>
-    
-    <table class="items-table">
-        <thead>
-            <tr>
-                <th style="width: 5%;">ردیف</th>
-                <th style="width: 25%;">شرح کالا یا خدمات</th>
-                <th style="width: 10%;">کد کالا</th>
-                <th class="colored-col" style="width: 10%;">مقدار</th>
-                <th style="width: 10%;">واحد</th>
-                <th class="colored-col" style="width: 20%;">قیمت واحد</th>
-                <th class="colored-col" style="width: 20%;">قیمت کل</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>۱</td>
-                <td class="description-col">مانیتور ۲۷ اینچ مدل XW2700</td>
-                <td>A101</td>
-                <td class="colored-col">۲</td>
-                <td>عدد</td>
-                <td class="colored-col">۹۵۰,۰۰۰</td>
-                <td class="colored-col">۱,۹۰۰,۰۰۰</td>
-            </tr>
-            <tr>
-                <td>۲</td>
-                <td class="description-col">هارد اکسترنال ۱ ترابایت</td>
-                <td>H54B</td>
-                <td class="colored-col">۵</td>
-                <td>عدد</td>
-                <td class="colored-col">۶۵۰,۰۰۰</td>
-                <td class="colored-col">۳,۲۵۰,۰۰۰</td>
-            </tr>
-            <tr>
-                <td>۳</td>
-                <td class="description-col">نصب و راه‌اندازی نرم‌افزار (خدمات)</td>
-                <td>S001</td>
-                <td class="colored-col">۱</td>
-                <td>ساعت</td>
-                <td class="colored-col">۴۰۰,۰۰۰</td>
-                <td class="colored-col">۴۰۰,۰۰۰</td>
-            </tr>
-            
-            <tr><td colspan="7"></td></tr>
-            <tr><td colspan="7"></td></tr>
-            <tr><td colspan="7"></td></tr>
-            <tr><td colspan="7"></td></tr>
-            <tr><td colspan="7"></td></tr>
-            <tr><td colspan="7"></td></tr>
-            <tr><td colspan="7"></td></tr>
-        </tbody>
-    </table>
-    
-    <div class="footer-grid">
-        
-        <div class="footer-left">
-            <div class="box-style inventory">
-                **موجودی کالا در انبار:**
-            </div>
-            
-            <div class="box-style">
-                <div class="summary-row">
-                    <span class="summary-label">جمع مقدار:</span>
-                    <span class="summary-value" style="background-color: #FFFFCC;">**۸**</span>
-                </div>
-                <div class="summary-row">
-                    <span class="summary-label">جمع مبلغ:</span>
-                    <span class="summary-value" style="background-color: #FFFFCC;">**۵,۵۵۰,۰۰۰**</span>
-                </div>
-            </div>
-            
-            <div class="box-style" style="margin-top: 10px;">
-                 <span class="summary-label">جمع فرعی:</span>
-            </div>
-        </div>
-        
-        <div class="footer-right">
-            <div class="box-style">
-                **واحد فرعی:**
-                <div class="summary-row">
-                    <span class="summary-label">جمع مبلغ:</span>
-                    <span class="summary-value">**۵,۵۵۰,۰۰۰**</span>
-                </div>
-                <div class="summary-row">
-                    <span class="summary-label">جمع فرعی:</span>
-                    <span class="summary-value">**۵,۵۵۰,۰۰۰**</span>
-                </div>
-            </div>
+<div class="invoice-box">
 
-            <div class="address-box">
-                **آدرس:**
-                <p><span class="address-label">موبایل:</span> <span></span></p>
-                <p><span class="address-label">تلفن:</span> <span></span></p>
-                <p><span class="address-label">سایر:</span> <span></span></p>
-                <p><span class="address-label">تعداد:</span> <span>۳</span></p>
-                <p style="margin-top: 10px;">فاکتور یک وصول نشده به مبلغ: **...**</p>
-            </div>
+    <div class="header">
+        <div class="logo">
+            <img src="logo.png">
         </div>
-        
+        <div class="title">فاکتور فروش</div>
+        <div style="width:110px"></div>
     </div>
-    
-    <div class="footer-button">
-        <span>✅ امضای کلیه Ctrl+C+I</span>
+
+    <div class="info-box">
+        <div>
+            خریدار: جناب آقای محمد روشنگر<br>
+            آدرس: —————————————<br>
+            تلفن: —————————————<br>
+            موبایل: —————————————
+        </div>
+
+        <div>
+            تاریخ: ۱۴۰۴/۰۹/۱۸<br>
+            شماره فاکتور: ————————<br>
+            ساعت: ۱۱:۳۲:۲۵<br>
+            سند: ۸
+        </div>
+    </div>
+
+    <table>
+        <tr>
+            <th>ردیف</th>
+            <th>کد کالا</th>
+            <th>شرح کالا یا خدمات</th>
+            <th>مقدار</th>
+            <th>واحد</th>
+            <th>قیمت واحد (ریال)</th>
+            <th>قیمت کل (ریال)</th>
+        </tr>
+
+        <tr>
+            <td>1</td>
+            <td>00000029008</td>
+            <td>نبات فله‌ای چوبی سفید</td>
+            <td>1</td>
+            <td>کیلوگرم</td>
+            <td>۷۲٬۰۰۰٬۰۰۰</td>
+            <td>۷۲٬۰۰۰٬۰۰۰</td>
+        </tr>
+
+        <tr>
+            <td>2</td>
+            <td>00000036008</td>
+            <td>نبات فله‌ای چوبی زرد</td>
+            <td>1</td>
+            <td>کیلوگرم</td>
+            <td>۴۸۶٬۰۰۰٬۰۰۰</td>
+            <td>۴۸۶٬۰۰۰٬۰۰۰</td>
+        </tr>
+
+        <tr>
+            <td>3</td>
+            <td>00000041857</td>
+            <td>نبات فله‌ای شاخه سفید</td>
+            <td>1</td>
+            <td>کیلوگرم</td>
+            <td>۷۰٬۰۰۰٬۰۰۰</td>
+            <td>۷۰٬۰۰۰٬۰۰۰</td>
+        </tr>
+
+        <tr>
+            <td>4</td>
+            <td>00000051657</td>
+            <td>نبات فله‌ای شاخه زرد</td>
+            <td>1</td>
+            <td>کیلوگرم</td>
+            <td>۷۰٬۰۰۰٬۰۰۰</td>
+            <td>۷۰٬۰۰۰٬۰۰۰</td>
+        </tr>
+    </table>
+
+    <div class="footer-box">
+        جمع کل به ریال: ۱٬۴۸۴٬۵۰۰٬۰۰۰ &nbsp; | &nbsp;
+        خالص فاکتور: ۱٬۴۸۴٬۵۰۰٬۰۰۰ &nbsp; | &nbsp;
+        پرداخت نقدی: ۱٬۰۰۰٬۰۰۰٬۰۰۰
+    </div>
+
+    <div class="section">
+        مبلغ به حروف:
+        <b>یک میلیارد و چهارصد و هشتاد و چهار میلیون و پانصد هزار ریال</b>
+    </div>
+
+    <div class="section">
+        مانده حساب شما: <b>۳۸۰٬۰۰۰٬۰۰۰</b> ریال  
+        (تاریخ ۱۴۰۴/۰۹/۱۸ - ساعت ۱۱:۳۲:۲۵)  
+        <br>اجناس فوق تا تسویه کامل، نزد خریدار به صورت امانت می‌ماند.
+    </div>
+
+    <div class="section">
+        لطفاً وجه مانده حساب را به شماره شبا  
+        <b>IR100600241670013564097001</b><br>
+        به نام <b>خانم شیوا ذوالفقاری</b> بانک مهر ایران واریز نمایید.
+    </div>
+
+    <div class="sign-area">
+        <div>امضاء خریدار</div>
+        <div>مهر و امضاء فروشنده</div>
     </div>
 
 </div>

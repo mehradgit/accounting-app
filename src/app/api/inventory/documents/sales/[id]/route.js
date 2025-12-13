@@ -1,4 +1,3 @@
-// src/app/api/inventory/documents/sales/[id]/route.js
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -24,6 +23,7 @@ export async function GET(request, { params }) {
             detailAccount: true,
           },
         },
+        detailAccount: true, // ← این خط مهم است
         voucher: {
           include: {
             items: {
@@ -63,6 +63,21 @@ export async function GET(request, { params }) {
       );
     }
 
+    // ============ اینجا لاگ بگذارید ============
+    console.log("🔍 بررسی قیمت‌های ذخیره شده در دیتابیس:");
+    if (document.ledgerEntries && document.ledgerEntries.length > 0) {
+      document.ledgerEntries.forEach((entry, index) => {
+        console.log(`   آیتم ${index + 1}:`, {
+          product: entry.product?.name,
+          quantityOut: entry.quantityOut,
+          unitPriceInDB: entry.unitPrice,
+          totalPriceInDB: entry.totalPrice,
+          hasMetadata: !!entry.metadata,
+          metadata: entry.metadata,
+        });
+      });
+    }
+
     // محاسبه جمع‌های فاکتور
     const totals = {
       quantity: document.ledgerEntries.reduce(
@@ -76,31 +91,120 @@ export async function GET(request, { params }) {
       itemsCount: document.ledgerEntries.length,
     };
 
-    // اطلاعات اضافی
-    const paymentMethod = determinePaymentMethod(document.voucher);
-    const paymentInfo = await getPaymentInfo(document.voucher);
+    // استخراج اطلاعات پرداخت ترکیبی از metadata
+    const paymentDistribution = extractPaymentDistribution(document.voucher);
+
+    // اطلاعات پرداخت
+    const paymentInfo = {
+      distribution: paymentDistribution,
+      summary: calculatePaymentSummary(paymentDistribution, totals.amount),
+      method: determinePaymentMethod(document.voucher, paymentDistribution),
+      details: await getPaymentDetails(document, paymentDistribution),
+    };
 
     return NextResponse.json({
+      success: true,
       document,
       totals,
-      payment: {
-        method: paymentMethod,
-        info: paymentInfo,
-      },
+      payment: paymentInfo,
     });
   } catch (error) {
     console.error("خطا در دریافت جزئیات فاکتور:", error);
     return NextResponse.json(
-      { error: "خطا در دریافت اطلاعات" },
+      {
+        success: false,
+        error: "خطا در دریافت اطلاعات",
+        message: error.message,
+      },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
+// استخراج توزیع پرداخت از metadata
+function extractPaymentDistribution(voucher) {
+  if (!voucher) return null;
+
+  try {
+    // اگر metadata وجود دارد
+    if (voucher.metadata) {
+      let metadata;
+      if (typeof voucher.metadata === "string") {
+        metadata = JSON.parse(voucher.metadata);
+      } else {
+        metadata = voucher.metadata;
+      }
+      return metadata.paymentDistribution || null;
+    }
+  } catch (error) {
+    console.error("خطا در استخراج توزیع پرداخت:", error);
+  }
+
+  return null;
+}
+
+// محاسبه خلاصه پرداخت‌ها
+function calculatePaymentSummary(paymentDistribution, totalAmount) {
+  // اطمینان از وجود مقدار کل
+  if (!totalAmount && paymentDistribution?.totalAmount) {
+    totalAmount = paymentDistribution.totalAmount;
+  }
+
+  totalAmount = totalAmount || 0;
+
+  if (!paymentDistribution) {
+    return {
+      cash: 0,
+      cheque: 0,
+      transfer: 0,
+      credit: totalAmount,
+      totalPaid: 0,
+      remaining: totalAmount,
+      totalAmount: totalAmount,
+    };
+  }
+
+  const cash = paymentDistribution.cash?.amount || 0;
+  const cheque = paymentDistribution.cheque?.amount || 0;
+  const transfer = paymentDistribution.transfer?.amount || 0;
+  const credit = paymentDistribution.credit?.amount || 0;
+
+  // اگر totalAmount در distribution وجود دارد، استفاده کنیم
+  const calculatedTotal =
+    paymentDistribution.totalAmount || cash + cheque + transfer + credit;
+
+  const totalPaid = cash + cheque + transfer;
+  const remaining = credit;
+
+  return {
+    cash,
+    cheque,
+    transfer,
+    credit,
+    totalPaid,
+    remaining,
+    totalAmount: calculatedTotal || totalAmount,
+  };
+}
+
 // تابع تشخیص روش پرداخت
-function determinePaymentMethod(voucher) {
+function determinePaymentMethod(voucher, paymentDistribution) {
+  if (paymentDistribution) {
+    // اگر توزیع پرداخت ترکیبی داریم
+    const summary = calculatePaymentSummary(paymentDistribution, 0);
+
+    const methods = [];
+    if (summary.cash > 0) methods.push("cash");
+    if (summary.cheque > 0) methods.push("cheque");
+    if (summary.transfer > 0) methods.push("transfer");
+    if (summary.credit > 0) methods.push("credit");
+
+    if (methods.length === 1) return methods[0];
+    if (methods.length > 1) return "combined";
+    return "unknown";
+  }
+
+  // روش قدیمی
   if (!voucher) return "نامشخص";
 
   const items = voucher.items || [];
@@ -134,48 +238,135 @@ function determinePaymentMethod(voucher) {
 }
 
 // تابع دریافت اطلاعات پرداخت
-async function getPaymentInfo(voucher) {
-  if (!voucher) return null;
+async function getPaymentDetails(document, paymentDistribution) {
+  const details = {
+    cash: null,
+    cheques: [],
+    transfer: null,
+    credit: null,
+  };
 
-  // اگر چک دارد
-  if (voucher.cheques && voucher.cheques.length > 0) {
-    const cheque = voucher.cheques[0];
-    return {
-      type: "cheque",
+  // اگر توزیع پرداخت داریم
+  if (paymentDistribution) {
+    // اطلاعات نقدی
+    if (paymentDistribution.cash?.amount > 0) {
+      details.cash = {
+        amount: paymentDistribution.cash.amount,
+        accountId: paymentDistribution.cash.cashAccountId,
+        accountName: await getAccountName(
+          paymentDistribution.cash.cashAccountId
+        ),
+      };
+    }
+
+    // اطلاعات چک
+    if (paymentDistribution.cheque?.amount > 0) {
+      details.cheques = paymentDistribution.cheque.cheques || [];
+      details.chequeAccountName = await getAccountName(
+        paymentDistribution.cheque.chequeAccountId
+      );
+    }
+
+    // اطلاعات حواله
+    if (paymentDistribution.transfer?.amount > 0) {
+      details.transfer = {
+        amount: paymentDistribution.transfer.amount,
+        bankAccountId: paymentDistribution.transfer.bankDetailAccountId,
+        bankAccountName: await getBankAccountName(
+          paymentDistribution.transfer.bankDetailAccountId
+        ),
+        description: paymentDistribution.transfer.description || "",
+        trackingNumber: paymentDistribution.transfer.trackingNumber || "",
+        transferDate: paymentDistribution.transfer.transferDate || "",
+      };
+    }
+
+    // اطلاعات نسیه
+    if (paymentDistribution.credit?.amount > 0) {
+      details.credit = {
+        amount: paymentDistribution.credit.amount,
+      };
+    }
+
+    return details;
+  }
+
+  // روش قدیمی - اطلاعات از چک‌های ثبت شده
+  if (document.voucher?.cheques && document.voucher.cheques.length > 0) {
+    details.cheques = document.voucher.cheques.map((cheque) => ({
       chequeNumber: cheque.chequeNumber,
       bankName: cheque.bankName,
       dueDate: cheque.dueDate,
       amount: cheque.amount,
-    };
+      description: cheque.description,
+      status: cheque.status,
+    }));
   }
 
-  // اطلاعات از ردیف‌های سند
-  const items = voucher.items || [];
-  const cashItem = items.find((item) => item.subAccount?.code === "1-01-0002");
-  const bankItem = items.find((item) => item.subAccount?.code === "1-01-0001");
-
-  if (cashItem) {
-    return {
-      type: "cash",
-      amount: cashItem.debit || cashItem.credit,
-    };
-  }
-
-  if (bankItem) {
-    return {
-      type: "bank",
-      accountName: bankItem.detailAccount?.name,
-      amount: bankItem.debit || bankItem.credit,
-    };
-  }
-
-  return {
-    type: "credit",
-    amount: voucher.totalAmount,
-  };
+  return details;
 }
 
-// امکان حذف فاکتور (اختیاری)
+// تابع کمکی برای دریافت نام حساب
+async function getAccountName(accountId) {
+  if (!accountId) return "نامشخص";
+
+  try {
+    const account = await prisma.subAccount.findUnique({
+      where: { id: accountId },
+      select: { name: true, code: true },
+    });
+
+    if (account) {
+      return `${account.code} - ${account.name}`;
+    }
+
+    const detailAccount = await prisma.detailAccount.findUnique({
+      where: { id: accountId },
+      select: { name: true, code: true },
+    });
+
+    if (detailAccount) {
+      return `${detailAccount.code} - ${detailAccount.name}`;
+    }
+
+    return `حساب ${accountId}`;
+  } catch (error) {
+    console.error("خطا در دریافت نام حساب:", error);
+    return "نامشخص";
+  }
+}
+
+// تابع کمکی برای دریافت نام حساب بانک
+async function getBankAccountName(accountId) {
+  if (!accountId) return "نامشخص";
+
+  try {
+    const bank = await prisma.bank.findFirst({
+      where: { detailAccountId: accountId },
+      select: { name: true },
+    });
+
+    if (bank) {
+      return bank.name;
+    }
+
+    const detailAccount = await prisma.detailAccount.findUnique({
+      where: { id: accountId },
+      select: { name: true, code: true },
+    });
+
+    if (detailAccount) {
+      return `${detailAccount.code} - ${detailAccount.name}`;
+    }
+
+    return `حساب بانک ${accountId}`;
+  } catch (error) {
+    console.error("خطا در دریافت نام حساب بانک:", error);
+    return "نامشخص";
+  }
+}
+
+// امکان حذف فاکتور
 export async function DELETE(request, { params }) {
   try {
     const { id } = params;
@@ -183,7 +374,7 @@ export async function DELETE(request, { params }) {
     // بررسی وجود فاکتور
     const document = await prisma.inventoryDocument.findUnique({
       where: { id: parseInt(id) },
-      include: { voucher: true },
+      include: { voucher: true, ledgerEntries: true },
     });
 
     if (!document) {
@@ -202,7 +393,7 @@ export async function DELETE(request, { params }) {
     }
 
     // شروع تراکنش برای برگشت موجودی
-    const result = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       // برگشت موجودی
       for (const ledger of document.ledgerEntries) {
         await tx.stockItem.updateMany({
@@ -225,8 +416,6 @@ export async function DELETE(request, { params }) {
       await tx.inventoryDocument.delete({
         where: { id: parseInt(id) },
       });
-
-      return { success: true };
     });
 
     return NextResponse.json({
@@ -235,6 +424,13 @@ export async function DELETE(request, { params }) {
     });
   } catch (error) {
     console.error("خطا در حذف فاکتور:", error);
-    return NextResponse.json({ error: "خطا در حذف فاکتور" }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: "خطا در حذف فاکتور",
+        message: error.message,
+      },
+      { status: 500 }
+    );
   }
 }
