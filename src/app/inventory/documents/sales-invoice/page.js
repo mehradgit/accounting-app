@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import PersianDatePicker from "@/components/ui/PersianDatePicker";
+import ProductSearchSelect from "@/components/ProductSearchSelect";
 
 export default function SalesInvoicePage() {
   const router = useRouter();
@@ -13,40 +15,44 @@ export default function SalesInvoicePage() {
   const [cashAccount, setCashAccount] = useState(null); // 1-01-0002-01
   const [chequeAccount, setChequeAccount] = useState(null); // 1-02-0001
   const [warehouses, setWarehouses] = useState([]);
-  
+
+  // ref for keyboard navigation inside items table
+  const tableRef = useRef(null);
+
   const [formData, setFormData] = useState({
     invoiceNumber: "",
     invoiceDate: new Date().toISOString().split("T")[0],
     customerDetailAccountId: "",
     description: "",
     warehouseId: "",
-    
+
     // پرداخت ترکیبی
     paymentDistribution: {
       totalAmount: 0,
       cash: {
         enabled: false,
         amount: 0,
-        cashAccountId: null
+        cashAccountId: null,
       },
       cheque: {
         enabled: false,
         amount: 0,
         cheques: [],
-        chequeAccountId: null
+        chequeAccountId: null,
       },
       transfer: {
         enabled: false,
         amount: 0,
         bankDetailAccountId: null,
-        description: ""
+        description: "",
       },
       credit: {
         enabled: true,
-        amount: 0
-      }
+        amount: 0,
+      },
     },
-    
+
+    // items: quantity, salePrice, costPrice are strings for consistent formatting/entry
     items: [],
   });
 
@@ -144,15 +150,15 @@ export default function SalesInvoicePage() {
 
         setCashAccount(foundAccount);
         if (foundAccount) {
-          setFormData(prev => ({
+          setFormData((prev) => ({
             ...prev,
             paymentDistribution: {
               ...prev.paymentDistribution,
               cash: {
                 ...prev.paymentDistribution.cash,
-                cashAccountId: foundAccount.id
-              }
-            }
+                cashAccountId: foundAccount.id,
+              },
+            },
           }));
         }
       }
@@ -164,28 +170,28 @@ export default function SalesInvoicePage() {
           const chequeAcc = data.find((acc) => acc.code === "1-02-0001");
           setChequeAccount(chequeAcc || null);
           if (chequeAcc) {
-            setFormData(prev => ({
+            setFormData((prev) => ({
               ...prev,
               paymentDistribution: {
                 ...prev.paymentDistribution,
                 cheque: {
                   ...prev.paymentDistribution.cheque,
-                  chequeAccountId: chequeAcc.id
-                }
-              }
+                  chequeAccountId: chequeAcc.id,
+                },
+              },
             }));
           }
         } else if (data.subAccount) {
           setChequeAccount(data.subAccount);
-          setFormData(prev => ({
+          setFormData((prev) => ({
             ...prev,
             paymentDistribution: {
               ...prev.paymentDistribution,
               cheque: {
                 ...prev.paymentDistribution.cheque,
-                chequeAccountId: data.subAccount.id
-              }
-            }
+                chequeAccountId: data.subAccount.id,
+              },
+            },
           }));
         }
       }
@@ -197,7 +203,127 @@ export default function SalesInvoicePage() {
     }
   };
 
-  // محاسبات مبلغ کل
+  // --- Persian number helpers (from purchase-materials page) ---
+  const PERSIAN_DIGITS = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+  const PERSIAN_TO_LATIN = {
+    "۰": "0",
+    "۱": "1",
+    "۲": "2",
+    "۳": "3",
+    "۴": "4",
+    "۵": "5",
+    "۶": "6",
+    "۷": "7",
+    "۸": "8",
+    "۹": "9",
+  };
+
+  const toPersianDigits = (str) =>
+    String(str).replace(/\d/g, (d) => PERSIAN_DIGITS[Number(d)]);
+
+  const formatNumberToPersian = (value, maxDecimals = 3) => {
+    if (value === "" || value === null || value === undefined) return "";
+    const num = Number(value) || 0;
+    const isFloat = Math.abs(num - Math.round(num)) > 1e-12;
+    let str;
+    if (isFloat) str = num.toFixed(maxDecimals).replace(/\.?0+$/, "");
+    else str = Math.round(num).toString();
+    const parts = str.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return toPersianDigits(parts.join("."));
+  };
+
+  const normalizeNumberString = (s) => {
+    if (s === "" || s === null || s === undefined) return "";
+    let t = String(s);
+    // replace Persian digits
+    t = t.replace(/[۰-۹]/g, (d) => PERSIAN_TO_LATIN[d] || d);
+    // remove thousands separators (Arabic and latin)
+    t = t.replace(/[٬,]/g, "");
+    // keep digits and decimal point
+    t = t.replace(/[^0-9.]/g, "");
+    // keep only first decimal point
+    const parts = t.split(".");
+    if (parts.length > 1) {
+      t = parts.shift() + "." + parts.join("");
+    }
+    return t;
+  };
+
+  // --- items management (align with purchase-materials behavior) ---
+  const addItem = () => {
+    setFormData((prev) => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          productId: "",
+          quantity: "", // store as string
+          salePrice: "", // raw numeric string (normalized)
+          costPrice: "", // raw numeric string
+          description: "",
+        },
+      ],
+    }));
+    // focus handled by keyboard handlers if needed
+  };
+
+  const removeItem = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
+  };
+
+  const updateItem = (index, field, value) => {
+    setFormData((prev) => {
+      const newItems = [...prev.items];
+      newItems[index] = { ...newItems[index], [field]: value };
+      return { ...prev, items: newItems };
+    });
+  };
+
+  // when a product is selected, optionally prefill salePrice/costPrice (store as strings)
+  const handleProductSelect = async (index, productId) => {
+    if (!productId) {
+      updateItem(index, "productId", "");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/inventory/products/${productId}`);
+      if (res.ok) {
+        const p = await res.json();
+        if (p?.defaultSalePrice !== undefined && p?.defaultSalePrice !== null) {
+          updateItem(index, "salePrice", String(p.defaultSalePrice));
+        }
+        if (
+          p?.defaultPurchasePrice !== undefined &&
+          p?.defaultPurchasePrice !== null
+        ) {
+          updateItem(index, "costPrice", String(p.defaultPurchasePrice));
+        }
+        updateItem(index, "productId", String(productId));
+      } else {
+        updateItem(index, "productId", String(productId));
+      }
+    } catch (err) {
+      console.error("Error fetching product detail:", err);
+      updateItem(index, "productId", String(productId));
+    }
+  };
+
+  // handlers for price fields to store normalized numeric string
+  const handleSalePriceChange = (index, rawValue) => {
+    const normalized = normalizeNumberString(rawValue);
+    updateItem(index, "salePrice", normalized);
+  };
+
+  const handleCostPriceChange = (index, rawValue) => {
+    const normalized = normalizeNumberString(rawValue);
+    updateItem(index, "costPrice", normalized);
+  };
+
+  // calculate totals using numeric parseFloat
   const calculateTotals = () => {
     const totalQuantity = formData.items.reduce(
       (sum, item) => sum + (parseFloat(item.quantity) || 0),
@@ -221,71 +347,78 @@ export default function SalesInvoicePage() {
     return { totalQuantity, totalSaleAmount, totalCostAmount, profit };
   };
 
-  // مدیریت اقلام فاکتور
-  const addItem = () => {
-    setFormData((prev) => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        {
-          productId: "",
-          quantity: 1,
-          salePrice: 0,
-          costPrice: 0,
-          description: "",
-        },
-      ],
-    }));
+  // --- keyboard navigation: Enter moves to next focusable; at last description => add row (like purchase-materials) ---
+  const focusProductInput = (rowIndex) => {
+    const el = document.querySelector(
+      `input[data-row="${rowIndex}"][data-field="product-input"]`
+    );
+    if (el) el.focus();
   };
 
-  const removeItem = (index) => {
-    setFormData((prev) => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index),
-    }));
-  };
+  const handleEnterNavigation = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
 
-  const updateItem = (index, field, value) => {
-    const newItems = [...formData.items];
-    newItems[index][field] = value;
+    const tableEl = tableRef.current;
+    if (!tableEl) return;
 
-    if (field === "productId") {
-      const product = products.find((p) => p.id === parseInt(value));
-      if (product) {
-        newItems[index].salePrice = product.defaultSalePrice || 0;
-        newItems[index].costPrice = product.defaultPurchasePrice || 0;
-      }
+    const focusable = tableEl.querySelectorAll(
+      'input:not([type="button"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
+    );
+    const arr = Array.from(focusable);
+    const active = document.activeElement;
+    const idx = arr.indexOf(active);
+    if (idx === -1) return;
+
+    // determine if current is description of last row
+    const field = active.getAttribute("data-field");
+    const rowAttr = active.getAttribute("data-row");
+    const row = rowAttr ? Number(rowAttr) : -1;
+    const lastRowIndex = formData.items.length - 1;
+
+    if (field === "description" && row === lastRowIndex) {
+      // add new row then focus its product input
+      addItem();
+      setTimeout(() => {
+        focusProductInput(lastRowIndex + 1);
+      }, 50);
+      return;
     }
 
-    setFormData((prev) => ({ ...prev, items: newItems }));
+    // otherwise focus next focusable element
+    const next = arr[idx + 1];
+    if (next) {
+      next.focus();
+    } else {
+      // nothing next
+    }
   };
 
-  // مدیریت پرداخت ترکیبی
+  // --- payment distribution and cheque helpers remain mostly unchanged (except cheque date inputs already using PersianDatePicker below) ---
   const calculateCreditAmount = () => {
     const totals = calculateTotals();
     const { cash, cheque, transfer } = formData.paymentDistribution;
-    const paidAmount = 
+    const paidAmount =
       (cash.enabled ? parseFloat(cash.amount) || 0 : 0) +
       (cheque.enabled ? parseFloat(cheque.amount) || 0 : 0) +
       (transfer.enabled ? parseFloat(transfer.amount) || 0 : 0);
-    
+
     return Math.max(0, totals.totalSaleAmount - paidAmount);
   };
 
   const validatePaymentTotal = () => {
     const totals = calculateTotals();
     const { cash, cheque, transfer } = formData.paymentDistribution;
-    const paidAmount = 
+    const paidAmount =
       (cash.enabled ? parseFloat(cash.amount) || 0 : 0) +
       (cheque.enabled ? parseFloat(cheque.amount) || 0 : 0) +
       (transfer.enabled ? parseFloat(transfer.amount) || 0 : 0);
-    
+
     return paidAmount <= totals.totalSaleAmount + 0.01;
   };
 
-  // مدیریت چک‌ها
   const addCheque = () => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       paymentDistribution: {
         ...prev.paymentDistribution,
@@ -300,81 +433,84 @@ export default function SalesInvoicePage() {
               issueDate: new Date().toISOString().split("T")[0],
               dueDate: "",
               bankName: "",
-              description: ""
-            }
-          ]
-        }
-      }
+              description: "",
+            },
+          ],
+        },
+      },
     }));
   };
 
   const updateCheque = (index, field, value) => {
     const newCheques = [...formData.paymentDistribution.cheque.cheques];
     newCheques[index][field] = value;
-    
+
     // محاسبه جمع چک‌ها
     const chequesTotal = newCheques.reduce(
-      (sum, cheque) => sum + (parseFloat(cheque.amount) || 0), 
+      (sum, cheque) => sum + (parseFloat(cheque.amount) || 0),
       0
     );
-    
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
       paymentDistribution: {
         ...prev.paymentDistribution,
         cheque: {
           ...prev.paymentDistribution.cheque,
           cheques: newCheques,
-          amount: chequesTotal
-        }
-      }
+          amount: chequesTotal,
+        },
+      },
     }));
   };
 
   const removeCheque = (index) => {
-    const newCheques = formData.paymentDistribution.cheque.cheques.filter((_, i) => i !== index);
+    const newCheques = formData.paymentDistribution.cheque.cheques.filter(
+      (_, i) => i !== index
+    );
     const chequesTotal = newCheques.reduce(
-      (sum, cheque) => sum + (parseFloat(cheque.amount) || 0), 
+      (sum, cheque) => sum + (parseFloat(cheque.amount) || 0),
       0
     );
-    
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
       paymentDistribution: {
         ...prev.paymentDistribution,
         cheque: {
           ...prev.paymentDistribution.cheque,
           cheques: newCheques,
-          amount: chequesTotal
-        }
-      }
+          amount: chequesTotal,
+        },
+      },
     }));
   };
 
-  // به‌روزرسانی خودکار credit amount
+  // update derived credit amount when relevant inputs change
   useEffect(() => {
     const totals = calculateTotals();
     const creditAmount = calculateCreditAmount();
-    
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
       paymentDistribution: {
         ...prev.paymentDistribution,
         credit: {
           ...prev.paymentDistribution.credit,
-          amount: creditAmount
+          amount: creditAmount,
         },
-        totalAmount: totals.totalSaleAmount
-      }
+        totalAmount: totals.totalSaleAmount,
+      },
     }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     formData.paymentDistribution.cash,
     formData.paymentDistribution.cheque,
     formData.paymentDistribution.transfer,
-    formData.items
+    formData.items,
   ]);
 
-  // اعتبارسنجی فرم
+  // validation and submit (mostly same as before, but ensure using string fields)
   const validateForm = () => {
     if (formData.items.length === 0) {
       alert("حداقل یک کالا باید به فاکتور اضافه شود");
@@ -401,33 +537,30 @@ export default function SalesInvoicePage() {
       return false;
     }
 
-    // اعتبارسنجی پرداخت ترکیبی
+    // payment validation
     const { cash, cheque, transfer } = formData.paymentDistribution;
-    
-    // حداقل یک روش پرداخت باید فعال باشد
+
     if (!cash.enabled && !cheque.enabled && !transfer.enabled) {
       alert("حداقل یک روش پرداخت را انتخاب کنید");
       return false;
     }
-    
-    // برای روش‌های فعال، حساب‌ها باید مشخص باشد
+
     if (cash.enabled && !cash.cashAccountId) {
       alert("برای پرداخت نقدی، حساب صندوق را انتخاب کنید");
       return false;
     }
-    
+
     if (cheque.enabled) {
       if (!cheque.chequeAccountId) {
         alert("برای پرداخت چکی، حساب چک‌های وارده را انتخاب کنید");
         return false;
       }
-      
+
       if (cheque.cheques.length === 0) {
         alert("برای پرداخت چکی، حداقل یک چک اضافه کنید");
         return false;
       }
-      
-      // اعتبارسنجی چک‌ها
+
       for (const ch of cheque.cheques) {
         if (!ch.chequeNumber || !ch.amount || !ch.dueDate) {
           alert("لطفاً اطلاعات کامل همه چک‌ها را وارد کنید");
@@ -435,7 +568,7 @@ export default function SalesInvoicePage() {
         }
       }
     }
-    
+
     if (transfer.enabled && !transfer.bankDetailAccountId) {
       alert("برای پرداخت حواله، حساب بانک را انتخاب کنید");
       return false;
@@ -446,10 +579,26 @@ export default function SalesInvoicePage() {
       return false;
     }
 
-    // بررسی حساب‌های سیستمی
     if (!inventoryAccount) {
       alert("حساب موجودی کالا (1-04-0003) یافت نشد");
       return false;
+    }
+
+    // validate items fields
+    for (let i = 0; i < formData.items.length; i++) {
+      const it = formData.items[i];
+      if (!it.productId) {
+        alert(`ردیف ${i + 1}: کالا انتخاب نشده است`);
+        return false;
+      }
+      if (!it.quantity || parseFloat(it.quantity) <= 0) {
+        alert(`ردیف ${i + 1}: مقدار تعداد را وارد کنید`);
+        return false;
+      }
+      if (!it.salePrice || parseFloat(it.salePrice) < 0) {
+        alert(`ردیف ${i + 1}: قیمت فروش را وارد کنید`);
+        return false;
+      }
     }
 
     return true;
@@ -457,7 +606,6 @@ export default function SalesInvoicePage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!validateForm()) return;
 
     setLoading(true);
@@ -473,41 +621,46 @@ export default function SalesInvoicePage() {
         description: formData.description,
         warehouseId: formData.warehouseId,
         inventoryAccountId: inventoryAccount.id,
-        
-        // داده‌های پرداخت ترکیبی
+
         paymentDistribution: {
           totalAmount: totals.totalSaleAmount,
-          cash: cash.enabled ? {
-            amount: cash.amount,
-            cashAccountId: cash.cashAccountId
-          } : null,
-          cheque: cheque.enabled ? {
-            amount: cheque.amount,
-            cheques: cheque.cheques.map(ch => ({
-              chequeNumber: ch.chequeNumber,
-              amount: parseFloat(ch.amount),
-              issueDate: ch.issueDate,
-              dueDate: ch.dueDate,
-              bankName: ch.bankName,
-              description: ch.description
-            })),
-            chequeAccountId: cheque.chequeAccountId
-          } : null,
-          transfer: transfer.enabled ? {
-            amount: transfer.amount,
-            bankDetailAccountId: transfer.bankDetailAccountId,
-            description: transfer.description
-          } : null,
+          cash: cash.enabled
+            ? {
+                amount: cash.amount,
+                cashAccountId: cash.cashAccountId,
+              }
+            : null,
+          cheque: cheque.enabled
+            ? {
+                amount: cheque.amount,
+                cheques: cheque.cheques.map((ch) => ({
+                  chequeNumber: ch.chequeNumber,
+                  amount: parseFloat(ch.amount),
+                  issueDate: ch.issueDate,
+                  dueDate: ch.dueDate,
+                  bankName: ch.bankName,
+                  description: ch.description,
+                })),
+                chequeAccountId: cheque.chequeAccountId,
+              }
+            : null,
+          transfer: transfer.enabled
+            ? {
+                amount: transfer.amount,
+                bankDetailAccountId: transfer.bankDetailAccountId,
+                description: transfer.description,
+              }
+            : null,
           credit: {
-            amount: credit.amount
-          }
+            amount: credit.amount,
+          },
         },
 
         items: formData.items.map((item) => ({
           productId: parseInt(item.productId),
           quantity: parseFloat(item.quantity),
           salePrice: parseFloat(item.salePrice),
-          costPrice: parseFloat(item.costPrice),
+          costPrice: parseFloat(item.costPrice) || 0,
           description: item.description || "",
         })),
 
@@ -545,7 +698,9 @@ export default function SalesInvoicePage() {
           successMessage += `\n💰 نقدی: ${cash.amount.toLocaleString()} ریال`;
         }
         if (cheque.enabled && cheque.amount > 0) {
-          successMessage += `\n🧾 چک: ${cheque.amount.toLocaleString()} ریال (${cheque.cheques.length} فقره)`;
+          successMessage += `\n🧾 چک: ${cheque.amount.toLocaleString()} ریال (${
+            cheque.cheques.length
+          } فقره)`;
         }
         if (transfer.enabled && transfer.amount > 0) {
           successMessage += `\n🏦 حواله: ${transfer.amount.toLocaleString()} ریال`;
@@ -576,7 +731,9 @@ export default function SalesInvoicePage() {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h1 className="h2 mb-2">💰 فاکتور فروش کالا (پرداخت ترکیبی)</h1>
-          <p className="text-muted mb-0">ثبت فروش کالا با امکان تقسیم پرداخت بین چند روش</p>
+          <p className="text-muted mb-0">
+            ثبت فروش کالا با امکان تقسیم پرداخت بین چند روش
+          </p>
           <small className="text-info">
             <i className="bi bi-info-circle me-1"></i>
             حساب موجودی کالا:{" "}
@@ -626,16 +783,15 @@ export default function SalesInvoicePage() {
                 <label className="form-label">
                   تاریخ فاکتور <span className="text-danger">*</span>
                 </label>
-                <input
-                  type="date"
-                  className="form-control"
-                  value={formData.invoiceDate}
-                  onChange={(e) =>
+                <PersianDatePicker
+                  selected={formData.invoiceDate}
+                  onChange={(date) =>
                     setFormData((prev) => ({
                       ...prev,
-                      invoiceDate: e.target.value,
+                      invoiceDate: date,
                     }))
                   }
+                  placeholder="تاریخ فاکتور"
                   required
                   disabled={loading}
                 />
@@ -668,12 +824,10 @@ export default function SalesInvoicePage() {
               </div>
 
               <div className="col-md-3">
-                <label className="form-label">
-                  مبلغ کل فاکتور
-                </label>
+                <label className="form-label">مبلغ کل فاکتور</label>
                 <div className="form-control bg-light">
                   <div className="fs-5 fw-bold text-primary text-center">
-                    {totalSaleAmount.toLocaleString()} ریال
+                    {formatNumberToPersian(totalSaleAmount)} ریال
                   </div>
                 </div>
               </div>
@@ -771,9 +925,11 @@ export default function SalesInvoicePage() {
         <div className="card mb-4">
           <div className="card-header bg-info bg-opacity-10">
             <h5 className="mb-0">💰 توزیع پرداخت (ترکیبی)</h5>
-            <small className="text-muted">می‌توانید مبلغ فاکتور را بین چند روش پرداخت تقسیم کنید</small>
+            <small className="text-muted">
+              می‌توانید مبلغ فاکتور را بین چند روش پرداخت تقسیم کنید
+            </small>
           </div>
-          
+
           <div className="card-body">
             {/* نمایش مبلغ کل */}
             <div className="alert alert-primary mb-4">
@@ -781,18 +937,22 @@ export default function SalesInvoicePage() {
                 <div className="col-md-6">
                   <strong>مبلغ کل فاکتور:</strong>
                   <div className="fs-4 fw-bold text-primary">
-                    {totalSaleAmount.toLocaleString()} ریال
+                    {formatNumberToPersian(totalSaleAmount)} ریال
                   </div>
                 </div>
                 <div className="col-md-6">
                   <strong>باقیمانده (نسیه):</strong>
-                  <div className={`fs-4 fw-bold ${creditAmount > 0 ? 'text-warning' : 'text-success'}`}>
-                    {creditAmount.toLocaleString()} ریال
+                  <div
+                    className={`fs-4 fw-bold ${
+                      creditAmount > 0 ? "text-warning" : "text-success"
+                    }`}
+                  >
+                    {formatNumberToPersian(creditAmount)} ریال
                   </div>
                 </div>
               </div>
             </div>
-            
+
             {/* اعتبارسنجی */}
             {!validatePaymentTotal() && (
               <div className="alert alert-danger mb-3">
@@ -800,7 +960,7 @@ export default function SalesInvoicePage() {
                 مجموع پرداخت‌ها نمی‌تواند بیشتر از مبلغ فاکتور باشد!
               </div>
             )}
-            
+
             <div className="row g-3">
               {/* نقدی */}
               <div className="col-md-6">
@@ -811,16 +971,18 @@ export default function SalesInvoicePage() {
                         className="form-check-input"
                         type="checkbox"
                         checked={formData.paymentDistribution.cash.enabled}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          paymentDistribution: {
-                            ...prev.paymentDistribution,
-                            cash: {
-                              ...prev.paymentDistribution.cash,
-                              enabled: e.target.checked
-                            }
-                          }
-                        }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            paymentDistribution: {
+                              ...prev.paymentDistribution,
+                              cash: {
+                                ...prev.paymentDistribution.cash,
+                                enabled: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
                         disabled={loading}
                       />
                       <label className="form-check-label fw-bold">
@@ -828,7 +990,7 @@ export default function SalesInvoicePage() {
                       </label>
                     </div>
                   </div>
-                  
+
                   <div className="card-body">
                     {formData.paymentDistribution.cash.enabled && (
                       <>
@@ -837,41 +999,53 @@ export default function SalesInvoicePage() {
                           <input
                             type="number"
                             className="form-control"
-                            value={formData.paymentDistribution.cash.amount || 0}
-                            onChange={(e) => setFormData(prev => ({
-                              ...prev,
-                              paymentDistribution: {
-                                ...prev.paymentDistribution,
-                                cash: {
-                                  ...prev.paymentDistribution.cash,
-                                  amount: parseFloat(e.target.value) || 0
-                                }
-                              }
-                            }))}
+                            value={
+                              formData.paymentDistribution.cash.amount || 0
+                            }
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                paymentDistribution: {
+                                  ...prev.paymentDistribution,
+                                  cash: {
+                                    ...prev.paymentDistribution.cash,
+                                    amount: parseFloat(e.target.value) || 0,
+                                  },
+                                },
+                              }))
+                            }
                             min="0"
                             max={totalSaleAmount}
                             disabled={loading}
                           />
                           <small className="text-muted">
-                            حداکثر: {totalSaleAmount.toLocaleString()} ریال
+                            حداکثر: {formatNumberToPersian(totalSaleAmount)}{" "}
+                            ریال
                           </small>
                         </div>
-                        
+
                         <div className="mb-3">
                           <label className="form-label">حساب صندوق</label>
                           <select
                             className="form-select"
-                            value={formData.paymentDistribution.cash.cashAccountId || ""}
-                            onChange={(e) => setFormData(prev => ({
-                              ...prev,
-                              paymentDistribution: {
-                                ...prev.paymentDistribution,
-                                cash: {
-                                  ...prev.paymentDistribution.cash,
-                                  cashAccountId: e.target.value ? parseInt(e.target.value) : null
-                                }
-                              }
-                            }))}
+                            value={
+                              formData.paymentDistribution.cash.cashAccountId ||
+                              ""
+                            }
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                paymentDistribution: {
+                                  ...prev.paymentDistribution,
+                                  cash: {
+                                    ...prev.paymentDistribution.cash,
+                                    cashAccountId: e.target.value
+                                      ? parseInt(e.target.value)
+                                      : null,
+                                  },
+                                },
+                              }))
+                            }
                             disabled={loading}
                           >
                             <option value="">انتخاب حساب صندوق</option>
@@ -887,7 +1061,7 @@ export default function SalesInvoicePage() {
                   </div>
                 </div>
               </div>
-              
+
               {/* چک */}
               <div className="col-md-6">
                 <div className="card h-100 border-warning">
@@ -897,37 +1071,42 @@ export default function SalesInvoicePage() {
                         className="form-check-input"
                         type="checkbox"
                         checked={formData.paymentDistribution.cheque.enabled}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          paymentDistribution: {
-                            ...prev.paymentDistribution,
-                            cheque: {
-                              ...prev.paymentDistribution.cheque,
-                              enabled: e.target.checked
-                            }
-                          }
-                        }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            paymentDistribution: {
+                              ...prev.paymentDistribution,
+                              cheque: {
+                                ...prev.paymentDistribution.cheque,
+                                enabled: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
                         disabled={loading}
                       />
-                      <label className="form-check-label fw-bold">
-                        🧾 چک
-                      </label>
+                      <label className="form-check-label fw-bold">🧾 چک</label>
                     </div>
                   </div>
-                  
+
                   <div className="card-body">
                     {formData.paymentDistribution.cheque.enabled && (
                       <>
                         <div className="mb-3">
                           <label className="form-label">جمع مبلغ چک‌ها</label>
                           <div className="fs-5 fw-bold text-warning">
-                            {formData.paymentDistribution.cheque.amount.toLocaleString()} ریال
+                            {formatNumberToPersian(
+                              formData.paymentDistribution.cheque.amount
+                            )}{" "}
+                            ریال
                           </div>
                           <small className="text-muted">
-                            از {formData.paymentDistribution.cheque.cheques.length} فقره چک
+                            از{" "}
+                            {formData.paymentDistribution.cheque.cheques.length}{" "}
+                            فقره چک
                           </small>
                         </div>
-                        
+
                         {/* لیست چک‌ها */}
                         <div className="mb-3">
                           <div className="d-flex justify-content-between align-items-center mb-2">
@@ -942,8 +1121,9 @@ export default function SalesInvoicePage() {
                               افزودن چک
                             </button>
                           </div>
-                          
-                          {formData.paymentDistribution.cheque.cheques.length === 0 ? (
+
+                          {formData.paymentDistribution.cheque.cheques
+                            .length === 0 ? (
                             <div className="alert alert-warning p-2 small">
                               هنوز چکی اضافه نشده است
                             </div>
@@ -960,81 +1140,116 @@ export default function SalesInvoicePage() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {formData.paymentDistribution.cheque.cheques.map((cheque, index) => (
-                                    <tr key={cheque.id}>
-                                      <td>
-                                        <input
-                                          type="text"
-                                          className="form-control form-control-sm"
-                                          value={cheque.chequeNumber}
-                                          onChange={(e) => updateCheque(index, 'chequeNumber', e.target.value)}
-                                          placeholder="شماره چک"
-                                          disabled={loading}
-                                        />
-                                      </td>
-                                      <td>
-                                        <input
-                                          type="number"
-                                          className="form-control form-control-sm"
-                                          value={cheque.amount}
-                                          onChange={(e) => updateCheque(index, 'amount', e.target.value)}
-                                          placeholder="مبلغ"
-                                          disabled={loading}
-                                          style={{ width: '120px' }}
-                                        />
-                                      </td>
-                                      <td>
-                                        <input
-                                          type="date"
-                                          className="form-control form-control-sm"
-                                          value={cheque.dueDate}
-                                          onChange={(e) => updateCheque(index, 'dueDate', e.target.value)}
-                                          disabled={loading}
-                                        />
-                                      </td>
-                                      <td>
-                                        <input
-                                          type="text"
-                                          className="form-control form-control-sm"
-                                          value={cheque.bankName}
-                                          onChange={(e) => updateCheque(index, 'bankName', e.target.value)}
-                                          placeholder="نام بانک"
-                                          disabled={loading}
-                                        />
-                                      </td>
-                                      <td>
-                                        <button
-                                          type="button"
-                                          className="btn btn-sm btn-outline-danger"
-                                          onClick={() => removeCheque(index)}
-                                          disabled={loading}
-                                        >
-                                          <i className="bi bi-trash"></i>
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  ))}
+                                  {formData.paymentDistribution.cheque.cheques.map(
+                                    (cheque, index) => (
+                                      <tr key={cheque.id}>
+                                        <td>
+                                          <input
+                                            type="text"
+                                            className="form-control form-control-sm"
+                                            value={cheque.chequeNumber}
+                                            onChange={(e) =>
+                                              updateCheque(
+                                                index,
+                                                "chequeNumber",
+                                                e.target.value
+                                              )
+                                            }
+                                            placeholder="شماره چک"
+                                            disabled={loading}
+                                          />
+                                        </td>
+                                        <td>
+                                          <input
+                                            type="number"
+                                            className="form-control form-control-sm"
+                                            value={cheque.amount}
+                                            onChange={(e) =>
+                                              updateCheque(
+                                                index,
+                                                "amount",
+                                                e.target.value
+                                              )
+                                            }
+                                            placeholder="مبلغ"
+                                            disabled={loading}
+                                            style={{ width: "120px" }}
+                                          />
+                                        </td>
+                                        <td>
+                                          <PersianDatePicker
+                                            selected={cheque.dueDate}
+                                            onChange={(date) =>
+                                              updateCheque(
+                                                index,
+                                                "dueDate",
+                                                date
+                                              )
+                                            }
+                                            placeholder="تاریخ سررسید"
+                                            disabled={loading}
+                                            required
+                                          />
+                                        </td>
+                                        <td>
+                                          <input
+                                            type="text"
+                                            className="form-control form-control-sm"
+                                            value={cheque.bankName}
+                                            onChange={(e) =>
+                                              updateCheque(
+                                                index,
+                                                "bankName",
+                                                e.target.value
+                                              )
+                                            }
+                                            placeholder="نام بانک"
+                                            disabled={loading}
+                                          />
+                                        </td>
+                                        <td>
+                                          <button
+                                            type="button"
+                                            className="btn btn-sm btn-outline-danger"
+                                            onClick={() => removeCheque(index)}
+                                            disabled={loading}
+                                          >
+                                            <i className="bi bi-trash"></i>
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    )
+                                  )}
                                 </tbody>
                               </table>
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="mb-3">
-                          <label className="form-label">حساب چک‌های وارده</label>
+                          <label className="form-label">
+                            حساب چک‌های وارده
+                          </label>
                           <select
                             className="form-select"
-                            value={formData.paymentDistribution.cheque.chequeAccountId || ""}
-                            onChange={(e) => setFormData(prev => ({
-                              ...prev,
-                              paymentDistribution: {
-                                ...prev.paymentDistribution,
-                                cheque: {
-                                  ...prev.paymentDistribution.cheque,
-                                  chequeAccountId: e.target.value ? parseInt(e.target.value) : null
-                                }
-                              }
-                            }))}
+                            value={
+                              formData.paymentDistribution.cheque
+                                .chequeAccountId || ""
+                            }
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                paymentDistribution: {
+                                  ...prev.paymentDistribution,
+                                  cheque: {
+                                    ...prev.paymentDistribution.cheque,
+                                    chequeAccountId: e.target.value
+                                      ? parseInt(e.target.value)
+                                      : null,
+                                  },
+                                },
+                              }))
+                            }
                             disabled={loading}
                           >
                             <option value="">انتخاب حساب چک‌های وارده</option>
@@ -1050,7 +1265,7 @@ export default function SalesInvoicePage() {
                   </div>
                 </div>
               </div>
-              
+
               {/* حواله */}
               <div className="col-md-6">
                 <div className="card h-100 border-primary">
@@ -1060,16 +1275,18 @@ export default function SalesInvoicePage() {
                         className="form-check-input"
                         type="checkbox"
                         checked={formData.paymentDistribution.transfer.enabled}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          paymentDistribution: {
-                            ...prev.paymentDistribution,
-                            transfer: {
-                              ...prev.paymentDistribution.transfer,
-                              enabled: e.target.checked
-                            }
-                          }
-                        }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            paymentDistribution: {
+                              ...prev.paymentDistribution,
+                              transfer: {
+                                ...prev.paymentDistribution.transfer,
+                                enabled: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
                         disabled={loading}
                       />
                       <label className="form-check-label fw-bold">
@@ -1077,47 +1294,60 @@ export default function SalesInvoicePage() {
                       </label>
                     </div>
                   </div>
-                  
+
                   <div className="card-body">
                     {formData.paymentDistribution.transfer.enabled && (
                       <>
                         <div className="mb-3">
-                          <label className="form-label">مبلغ حواله (ریال)</label>
+                          <label className="form-label">
+                            مبلغ حواله (ریال)
+                          </label>
                           <input
                             type="number"
                             className="form-control"
-                            value={formData.paymentDistribution.transfer.amount || 0}
-                            onChange={(e) => setFormData(prev => ({
-                              ...prev,
-                              paymentDistribution: {
-                                ...prev.paymentDistribution,
-                                transfer: {
-                                  ...prev.paymentDistribution.transfer,
-                                  amount: parseFloat(e.target.value) || 0
-                                }
-                              }
-                            }))}
+                            value={
+                              formData.paymentDistribution.transfer.amount || 0
+                            }
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                paymentDistribution: {
+                                  ...prev.paymentDistribution,
+                                  transfer: {
+                                    ...prev.paymentDistribution.transfer,
+                                    amount: parseFloat(e.target.value) || 0,
+                                  },
+                                },
+                              }))
+                            }
                             min="0"
                             max={totalSaleAmount}
                             disabled={loading}
                           />
                         </div>
-                        
+
                         <div className="mb-3">
                           <label className="form-label">حساب بانک مقصد</label>
                           <select
                             className="form-select"
-                            value={formData.paymentDistribution.transfer.bankDetailAccountId || ""}
-                            onChange={(e) => setFormData(prev => ({
-                              ...prev,
-                              paymentDistribution: {
-                                ...prev.paymentDistribution,
-                                transfer: {
-                                  ...prev.paymentDistribution.transfer,
-                                  bankDetailAccountId: e.target.value ? parseInt(e.target.value) : null
-                                }
-                              }
-                            }))}
+                            value={
+                              formData.paymentDistribution.transfer
+                                .bankDetailAccountId || ""
+                            }
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                paymentDistribution: {
+                                  ...prev.paymentDistribution,
+                                  transfer: {
+                                    ...prev.paymentDistribution.transfer,
+                                    bankDetailAccountId: e.target.value
+                                      ? parseInt(e.target.value)
+                                      : null,
+                                  },
+                                },
+                              }))
+                            }
                             disabled={loading}
                           >
                             <option value="">انتخاب حساب بانک</option>
@@ -1128,23 +1358,27 @@ export default function SalesInvoicePage() {
                             ))}
                           </select>
                         </div>
-                        
+
                         <div className="mb-3">
                           <label className="form-label">شرح حواله</label>
                           <input
                             type="text"
                             className="form-control"
-                            value={formData.paymentDistribution.transfer.description}
-                            onChange={(e) => setFormData(prev => ({
-                              ...prev,
-                              paymentDistribution: {
-                                ...prev.paymentDistribution,
-                                transfer: {
-                                  ...prev.paymentDistribution.transfer,
-                                  description: e.target.value
-                                }
-                              }
-                            }))}
+                            value={
+                              formData.paymentDistribution.transfer.description
+                            }
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                paymentDistribution: {
+                                  ...prev.paymentDistribution,
+                                  transfer: {
+                                    ...prev.paymentDistribution.transfer,
+                                    description: e.target.value,
+                                  },
+                                },
+                              }))
+                            }
                             placeholder="شرح حواله بانکی..."
                             disabled={loading}
                           />
@@ -1154,7 +1388,7 @@ export default function SalesInvoicePage() {
                   </div>
                 </div>
               </div>
-              
+
               {/* نسیه (باقیمانده) */}
               <div className="col-md-6">
                 <div className="card h-100 border-secondary">
@@ -1171,12 +1405,12 @@ export default function SalesInvoicePage() {
                       </label>
                     </div>
                   </div>
-                  
+
                   <div className="card-body">
                     <div className="text-center py-3">
                       <div className="fs-1 mb-2">📋</div>
                       <div className="fs-4 fw-bold mb-2">
-                        {creditAmount.toLocaleString()} ریال
+                        {formatNumberToPersian(creditAmount)} ریال
                       </div>
                       <p className="text-muted small mb-0">
                         باقیمانده بدهی مشتری پس از کسر پرداخت‌ها
@@ -1192,7 +1426,7 @@ export default function SalesInvoicePage() {
                 </div>
               </div>
             </div>
-            
+
             {/* خلاصه پرداخت‌ها */}
             <div className="row mt-4">
               <div className="col-12">
@@ -1218,101 +1452,147 @@ export default function SalesInvoicePage() {
                               {formData.paymentDistribution.cash.enabled ? (
                                 <span className="badge bg-success">فعال</span>
                               ) : (
-                                <span className="badge bg-secondary">غیرفعال</span>
+                                <span className="badge bg-secondary">
+                                  غیرفعال
+                                </span>
                               )}
                             </td>
                             <td className="fw-bold">
-                              {formData.paymentDistribution.cash.amount.toLocaleString()}
+                              {formatNumberToPersian(
+                                formData.paymentDistribution.cash.amount
+                              )}
                             </td>
                             <td>
-                              {totalSaleAmount > 0 
-                                ? ((formData.paymentDistribution.cash.amount / totalSaleAmount) * 100).toFixed(1)
-                                : 0}%
+                              {totalSaleAmount > 0
+                                ? (
+                                    (formData.paymentDistribution.cash.amount /
+                                      totalSaleAmount) *
+                                    100
+                                  ).toFixed(1)
+                                : 0}
+                              %
                             </td>
                           </tr>
-                          
+
                           <tr>
                             <td>🧾 چک</td>
                             <td>
                               {formData.paymentDistribution.cheque.enabled ? (
                                 <span className="badge bg-success">فعال</span>
                               ) : (
-                                <span className="badge bg-secondary">غیرفعال</span>
+                                <span className="badge bg-secondary">
+                                  غیرفعال
+                                </span>
                               )}
                             </td>
                             <td className="fw-bold">
-                              {formData.paymentDistribution.cheque.amount.toLocaleString()}
+                              {formatNumberToPersian(
+                                formData.paymentDistribution.cheque.amount
+                              )}
                             </td>
                             <td>
-                              {totalSaleAmount > 0 
-                                ? ((formData.paymentDistribution.cheque.amount / totalSaleAmount) * 100).toFixed(1)
-                                : 0}%
+                              {totalSaleAmount > 0
+                                ? (
+                                    (formData.paymentDistribution.cheque
+                                      .amount /
+                                      totalSaleAmount) *
+                                    100
+                                  ).toFixed(1)
+                                : 0}
+                              %
                             </td>
                           </tr>
-                          
+
                           <tr>
                             <td>🏦 حواله</td>
                             <td>
                               {formData.paymentDistribution.transfer.enabled ? (
                                 <span className="badge bg-success">فعال</span>
                               ) : (
-                                <span className="badge bg-secondary">غیرفعال</span>
+                                <span className="badge bg-secondary">
+                                  غیرفعال
+                                </span>
                               )}
                             </td>
                             <td className="fw-bold">
-                              {formData.paymentDistribution.transfer.amount.toLocaleString()}
+                              {formatNumberToPersian(
+                                formData.paymentDistribution.transfer.amount
+                              )}
                             </td>
                             <td>
-                              {totalSaleAmount > 0 
-                                ? ((formData.paymentDistribution.transfer.amount / totalSaleAmount) * 100).toFixed(1)
-                                : 0}%
+                              {totalSaleAmount > 0
+                                ? (
+                                    (formData.paymentDistribution.transfer
+                                      .amount /
+                                      totalSaleAmount) *
+                                    100
+                                  ).toFixed(1)
+                                : 0}
+                              %
                             </td>
                           </tr>
-                          
+
                           <tr className="table-warning">
                             <td>📝 نسیه (باقیمانده)</td>
                             <td>
                               <span className="badge bg-warning">اتوماتیک</span>
                             </td>
                             <td className="fw-bold">
-                              {creditAmount.toLocaleString()}
+                              {formatNumberToPersian(creditAmount)}
                             </td>
                             <td>
-                              {totalSaleAmount > 0 
-                                ? ((creditAmount / totalSaleAmount) * 100).toFixed(1)
-                                : 0}%
+                              {totalSaleAmount > 0
+                                ? (
+                                    (creditAmount / totalSaleAmount) *
+                                    100
+                                  ).toFixed(1)
+                                : 0}
+                              %
                             </td>
                           </tr>
-                          
+
                           <tr className="table-primary">
                             <td colSpan="2" className="text-end fw-bold">
                               جمع کل:
                             </td>
                             <td className="fw-bold fs-5">
-                              {totalSaleAmount.toLocaleString()}
+                              {formatNumberToPersian(totalSaleAmount)}
                             </td>
                             <td className="fw-bold fs-5">100%</td>
                           </tr>
                         </tbody>
                       </table>
-                    </div>
-                    
-                    {/* وضعیت اعتبارسنجی */}
-                    <div className={`alert ${validatePaymentTotal() ? 'alert-success' : 'alert-danger'}`}>
-                      <div className="d-flex justify-content-between align-items-center">
-                        <div>
-                          <i className={`bi ${validatePaymentTotal() ? 'bi-check-circle' : 'bi-exclamation-triangle'} me-2`}></i>
-                          {validatePaymentTotal() 
-                            ? '✅ مجموع پرداخت‌ها با مبلغ فاکتور برابر است' 
-                            : '❌ مجموع پرداخت‌ها بیشتر از مبلغ فاکتور است!'}
-                        </div>
-                        <div className="fw-bold">
-                          مجموع پرداخت‌ها: {
-                            (formData.paymentDistribution.cash.amount + 
-                             formData.paymentDistribution.cheque.amount + 
-                             formData.paymentDistribution.transfer.amount)
-                            .toLocaleString()
-                          } ریال
+
+                      {/* وضعیت اعتبارسنجی */}
+                      <div
+                        className={`alert ${
+                          validatePaymentTotal()
+                            ? "alert-success"
+                            : "alert-danger"
+                        }`}
+                      >
+                        <div className="d-flex justify-content-between align-items-center">
+                          <div>
+                            <i
+                              className={`bi ${
+                                validatePaymentTotal()
+                                  ? "bi-check-circle"
+                                  : "bi-exclamation-triangle"
+                              } me-2`}
+                            ></i>
+                            {validatePaymentTotal()
+                              ? "✅ مجموع پرداخت‌ها با مبلغ فاکتور برابر است"
+                              : "❌ مجموع پرداخت‌ها بیشتر از مبلغ فاکتور است!"}
+                          </div>
+                          <div className="fw-bold">
+                            مجموع پرداخت‌ها:{" "}
+                            {(
+                              formData.paymentDistribution.cash.amount +
+                              formData.paymentDistribution.cheque.amount +
+                              formData.paymentDistribution.transfer.amount
+                            ).toLocaleString()}{" "}
+                            ریال
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1323,7 +1603,7 @@ export default function SalesInvoicePage() {
           </div>
         </div>
 
-        {/* بخش کالاهای فروخته شده */}
+        {/* بخش کالاهای فروخته شده (مثل purchase-materials: ProductSearchSelect, Persian formatting, keyboard navigation) */}
         <div className="card mb-4">
           <div className="card-header bg-success bg-opacity-10">
             <div className="d-flex justify-content-between align-items-center">
@@ -1348,7 +1628,7 @@ export default function SalesInvoicePage() {
               </div>
             ) : (
               <div className="table-responsive">
-                <table className="table table-hover">
+                <table className="table table-hover" ref={tableRef}>
                   <thead>
                     <tr>
                       <th>ردیف</th>
@@ -1356,35 +1636,43 @@ export default function SalesInvoicePage() {
                       <th>تعداد</th>
                       <th>قیمت فروش (ریال)</th>
                       <th>قیمت تمام شده (ریال)</th>
-                      <th>جمع فروش (ریال)</th>
+                      <th>جمع (ریال)</th>
                       <th>توضیحات</th>
                       <th>عملیات</th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {formData.items.map((item, index) => (
-                      <tr key={index}>
-                        <td>{index + 1}</td>
-                        <td>
-                          <select
-                            className="form-select form-select-sm"
+                      <tr key={index} data-row={index}>
+                        <td>{formatNumberToPersian(index + 1)}</td>
+                        <td style={{ minWidth: 260 }}>
+                          <ProductSearchSelect
+                            minQueryLength={0}
+                            resultLimit={100}
                             value={item.productId}
-                            onChange={(e) =>
-                              updateItem(index, "productId", e.target.value)
+                            onChange={(productId) =>
+                              handleProductSelect(index, productId)
                             }
-                            required
+                            placeholder="جستجو یا انتخاب کالا..."
                             disabled={loading}
-                          >
-                            <option value="">انتخاب کالا</option>
-                            {products.map((product) => (
-                              <option key={product.id} value={product.id}>
-                                {product.code} - {product.name}
-                                {product.defaultSalePrice &&
-                                  ` - ${product.defaultSalePrice.toLocaleString()} ریال`}
-                              </option>
-                            ))}
-                          </select>
+                            inputProps={{
+                              "data-row": String(index),
+                              "data-field": "product-input",
+                              onKeyDown: (e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  const next = document.querySelector(
+                                    `input[data-row="${index}"][data-field="quantity"]`
+                                  );
+                                  if (next) next.focus();
+                                }
+                              },
+                              // no ref here
+                            }}
+                          />
                         </td>
+
                         <td>
                           <input
                             type="number"
@@ -1396,41 +1684,63 @@ export default function SalesInvoicePage() {
                             min="0.001"
                             step="0.001"
                             style={{ width: "100px" }}
-                            required
+                            data-row={String(index)}
+                            data-field="quantity"
                             disabled={loading}
+                            onKeyDown={handleEnterNavigation}
                           />
                         </td>
+
                         <td>
                           <input
-                            type="number"
-                            className="form-control form-control-sm"
-                            value={item.salePrice}
-                            onChange={(e) =>
-                              updateItem(index, "salePrice", e.target.value)
+                            type="text"
+                            className="form-control form-control-sm text-end"
+                            value={
+                              item.salePrice
+                                ? formatNumberToPersian(item.salePrice, 3)
+                                : ""
                             }
-                            min="0"
+                            onChange={(e) =>
+                              handleSalePriceChange(index, e.target.value)
+                            }
+                            inputMode="numeric"
                             style={{ width: "150px" }}
-                            required
+                            data-row={String(index)}
+                            data-field="salePrice"
                             disabled={loading}
+                            onKeyDown={handleEnterNavigation}
                           />
                         </td>
+
                         <td>
                           <input
-                            type="number"
-                            className="form-control form-control-sm"
-                            value={item.costPrice}
-                            onChange={(e) =>
-                              updateItem(index, "costPrice", e.target.value)
+                            type="text"
+                            className="form-control form-control-sm text-end"
+                            value={
+                              item.costPrice
+                                ? formatNumberToPersian(item.costPrice, 3)
+                                : ""
                             }
-                            min="0"
+                            onChange={(e) =>
+                              handleCostPriceChange(index, e.target.value)
+                            }
+                            inputMode="numeric"
                             style={{ width: "150px" }}
-                            required
+                            data-row={String(index)}
+                            data-field="costPrice"
                             disabled={loading}
+                            onKeyDown={handleEnterNavigation}
                           />
                         </td>
+
                         <td className="fw-bold">
-                          {(item.quantity * item.salePrice).toLocaleString()} ریال
+                          {formatNumberToPersian(
+                            (parseFloat(item.quantity) || 0) *
+                              (parseFloat(item.salePrice) || 0)
+                          )}{" "}
+                          ریال
                         </td>
+
                         <td>
                           <input
                             type="text"
@@ -1440,9 +1750,13 @@ export default function SalesInvoicePage() {
                               updateItem(index, "description", e.target.value)
                             }
                             placeholder="توضیحات..."
+                            data-row={String(index)}
+                            data-field="description"
                             disabled={loading}
+                            onKeyDown={handleEnterNavigation}
                           />
                         </td>
+
                         <td>
                           <button
                             type="button"
@@ -1456,31 +1770,16 @@ export default function SalesInvoicePage() {
                       </tr>
                     ))}
                   </tbody>
+
                   <tfoot>
                     <tr>
-                      <td colSpan="2" className="text-end fw-bold">
+                      <td colSpan="4" className="text-end fw-bold fs-5">
                         جمع کل:
                       </td>
-                      <td className="fw-bold">
-                        {calculateTotals().totalQuantity}
+                      <td className="fw-bold fs-5 text-success">
+                        {formatNumberToPersian(totalSaleAmount)} ریال
                       </td>
-                      <td></td>
-                      <td className="fw-bold">
-                        {totalCostAmount.toLocaleString()}
-                      </td>
-                      <td className="fw-bold text-success">
-                        {totalSaleAmount.toLocaleString()}
-                      </td>
-                      <td colSpan="2"></td>
-                    </tr>
-                    <tr className="table-primary">
-                      <td colSpan="5" className="text-end fw-bold fs-5">
-                        سود ناخالص:
-                      </td>
-                      <td className="fw-bold fs-5 text-primary">
-                        {profit.toLocaleString()} ریال
-                      </td>
-                      <td colSpan="2"></td>
+                      <td colSpan="3"></td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1505,60 +1804,78 @@ export default function SalesInvoicePage() {
                   <div className="d-flex justify-content-between mb-2">
                     <span>جمع تعداد:</span>
                     <span className="fw-bold">
-                      {calculateTotals().totalQuantity} واحد
+                      {formatNumberToPersian(calculateTotals().totalQuantity)}{" "}
+                      واحد
                     </span>
                   </div>
                   <div className="d-flex justify-content-between mb-2">
                     <span>بهای تمام شده:</span>
                     <span className="fw-bold text-danger">
-                      {totalCostAmount.toLocaleString()} ریال
+                      {formatNumberToPersian(totalCostAmount)} ریال
                     </span>
                   </div>
                   <hr />
                   <div className="d-flex justify-content-between mb-2">
                     <span className="fs-5">فروش ناخالص:</span>
                     <span className="fs-4 fw-bold text-success">
-                      {totalSaleAmount.toLocaleString()} ریال
+                      {formatNumberToPersian(totalSaleAmount)} ریال
                     </span>
                   </div>
                   <div className="d-flex justify-content-between">
                     <span className="fs-6">سود ناخالص:</span>
                     <span className="fs-5 fw-bold text-primary">
-                      {profit.toLocaleString()} ریال
+                      {formatNumberToPersian(profit)} ریال
                     </span>
                   </div>
                 </div>
 
                 <div className="alert alert-info mt-3">
-                  <h6 className="alert-heading">📝 ساختار سند حسابداری (ترکیبی):</h6>
+                  <h6 className="alert-heading">
+                    📝 ساختار سند حسابداری (ترکیبی):
+                  </h6>
                   <div className="small">
-                    <div className="mb-2">۱. بستانکار: موجودی کالا (1-04-0003)</div>
-                    <div className="mb-2 pl-3">بدهکار: حساب مشتری (مبلغ کل)</div>
-                    
-                    {formData.paymentDistribution.cash.enabled && formData.paymentDistribution.cash.amount > 0 && (
-                      <div className="mb-2">۲. بستانکار: حساب مشتری</div>
-                    )}
-                    {formData.paymentDistribution.cash.enabled && formData.paymentDistribution.cash.amount > 0 && (
-                      <div className="mb-2 pl-3">بدهکار: صندوق (1-01-0002-01)</div>
-                    )}
-                    
-                    {formData.paymentDistribution.cheque.enabled && formData.paymentDistribution.cheque.amount > 0 && (
-                      <div className="mb-2">۳. بستانکار: حساب مشتری</div>
-                    )}
-                    {formData.paymentDistribution.cheque.enabled && formData.paymentDistribution.cheque.amount > 0 && (
-                      <div className="mb-2 pl-3">بدهکار: چک‌های وارده (1-02-0001)</div>
-                    )}
-                    
-                    {formData.paymentDistribution.transfer.enabled && formData.paymentDistribution.transfer.amount > 0 && (
-                      <div className="mb-2">۴. بستانکار: حساب مشتری</div>
-                    )}
-                    {formData.paymentDistribution.transfer.enabled && formData.paymentDistribution.transfer.amount > 0 && (
-                      <div className="mb-2 pl-3">بدهکار: حساب بانک</div>
-                    )}
-                    
+                    <div className="mb-2">
+                      ۱. بستانکار: موجودی کالا (1-04-0003)
+                    </div>
+                    <div className="mb-2 pl-3">
+                      بدهکار: حساب مشتری (مبلغ کل)
+                    </div>
+
+                    {formData.paymentDistribution.cash.enabled &&
+                      formData.paymentDistribution.cash.amount > 0 && (
+                        <div className="mb-2">۲. بستانکار: حساب مشتری</div>
+                      )}
+                    {formData.paymentDistribution.cash.enabled &&
+                      formData.paymentDistribution.cash.amount > 0 && (
+                        <div className="mb-2 pl-3">
+                          بدهکار: صندوق (1-01-0002-01)
+                        </div>
+                      )}
+
+                    {formData.paymentDistribution.cheque.enabled &&
+                      formData.paymentDistribution.cheque.amount > 0 && (
+                        <div className="mb-2">۳. بستانکار: حساب مشتری</div>
+                      )}
+                    {formData.paymentDistribution.cheque.enabled &&
+                      formData.paymentDistribution.cheque.amount > 0 && (
+                        <div className="mb-2 pl-3">
+                          بدهکار: چک‌های وارده (1-02-0001)
+                        </div>
+                      )}
+
+                    {formData.paymentDistribution.transfer.enabled &&
+                      formData.paymentDistribution.transfer.amount > 0 && (
+                        <div className="mb-2">۴. بستانکار: حساب مشتری</div>
+                      )}
+                    {formData.paymentDistribution.transfer.enabled &&
+                      formData.paymentDistribution.transfer.amount > 0 && (
+                        <div className="mb-2 pl-3">بدهکار: حساب بانک</div>
+                      )}
+
                     {creditAmount > 0 && (
                       <div className="text-warning mt-2">
-                        باقیمانده: {creditAmount.toLocaleString()} ریال نسیه
+                        باقیمانده: {formatNumberToPersian(creditAmount)} ریال
+                        نسیه
                       </div>
                     )}
                   </div>

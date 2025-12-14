@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ProductSearchSelect from "@/components/ProductSearchSelect";
+import PersianDatePicker from "@/components/ui/PersianDatePicker";
 
 /**
  * Purchase Materials Page (final)
@@ -382,12 +383,11 @@ export default function PurchaseMaterialsPage() {
 
               <div className="col-md-4">
                 <label className="form-label">تاریخ فاکتور</label>
-                <input
-                  type="date"
-                  className="form-control"
-                  value={formData.invoiceDate}
-                  onChange={(e) => setFormData((p) => ({ ...p, invoiceDate: e.target.value }))}
-                  disabled={loading}
+                <PersianDatePicker
+                  selected={formData.invoiceDate}
+                  onChange={(date) => setFormData((p) => ({ ...p, invoiceDate: date }))}
+                  placeholder="تاریخ فاکتور"
+                  required
                 />
               </div>
 
@@ -550,12 +550,10 @@ export default function PurchaseMaterialsPage() {
                     </div>
                     <div className="col-md-4">
                       <label className="form-label">تاریخ سررسید</label>
-                      <input
-                        type="date"
-                        className="form-control"
-                        value={formData.chequeData.dueDate}
-                        onChange={(e) => setFormData((p) => ({ ...p, chequeData: { ...p.chequeData, dueDate: e.target.value } }))}
-                        disabled={loading}
+                      <PersianDatePicker
+                        selected={formData.chequeData.dueDate}
+                        onChange={(date) => setFormData((p) => ({ ...p, chequeData: { ...p.chequeData, dueDate: date } }))}
+                        placeholder="تاریخ سررسید چک"
                         required
                       />
                     </div>
