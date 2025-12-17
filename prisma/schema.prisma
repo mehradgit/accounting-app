@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -98,6 +96,10 @@ model Person {
   // روابط انبارداری
   inventoryDocuments InventoryDocument[]
   inventoryLedgers   InventoryLedger[]
+
+  // ارتباط با خریدها و فاکتورهای فروش (اضافه شده برای برطرف کردن خطای relation)
+  purchaseDocuments PurchaseDocument[]  // مرتبط با PurchaseDocument.supplier
+  salesInvoices     SalesInvoice[]      // مرتبط با SalesInvoice.customer
 
   createdAt DateTime @default(now())
 
@@ -211,7 +213,7 @@ model Bank {
 // ۹. گروه کالا (ProductCategory)
 model ProductCategory {
   id          Int               @id @default(autoincrement())
-  code        String            @unique @db.VarChar(10)
+  code        String            @unique @db.VarChar(20) // expanded length for formats like CAT-YYYY-0001
   name        String            @db.VarChar(100)
   description String?
   parentId    Int?
@@ -238,7 +240,7 @@ model Unit {
 // ۱۱. کالا (Product)
 model Product {
   id         Int             @id @default(autoincrement())
-  code       String          @unique @db.VarChar(20)
+  code       String          @unique @db.VarChar(20) // numeric padded string e.g. "0001"
   name       String          @db.VarChar(200)
   barcode    String?         @db.VarChar(50)
   categoryId Int
@@ -263,6 +265,9 @@ model Product {
   priceHistory     ProductPriceHistory[]
   inventoryLedgers InventoryLedger[]
   stockItems       StockItem[]
+
+  // رابطهٔ برگشتی برای ProductionOrder.product
+  productionOrders ProductionOrder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -342,7 +347,7 @@ model InventoryTransactionType {
 // ۱۶. سند انبار (InventoryDocument)
 model InventoryDocument {
   id             Int                      @id @default(autoincrement())
-  documentNumber String                   @unique @db.VarChar(20)
+  documentNumber String                   @unique @db.VarChar(30)
   documentDate   DateTime
   typeId         Int
   type           InventoryTransactionType @relation(fields: [typeId], references: [id])
@@ -407,7 +412,7 @@ model InventoryLedger {
   description String?
 
   // اضافه کردن metadata برای ذخیره اطلاعات اضافی
-  metadata Json? @db.Json // <-- این خط را اضافه کنید
+  metadata Json? @db.Json
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -416,7 +421,7 @@ model InventoryLedger {
   @@map("inventory_ledger")
 }
 
-// ۱۸. شمارنده اسناد انبار
+// ۱۸. شمارنده اسناد انبار (InventoryCounter) — (در صورت استفاده خاص)
 model InventoryCounter {
   id         Int      @id @default(autoincrement())
   prefix     String   @db.VarChar(10)
@@ -431,9 +436,72 @@ model InventoryCounter {
 }
 
 // ==========================================================
-// Enumها
+// اسناد تجاری دیگر (Production / Purchase / Sales)
 // ==========================================================
 
+// دستور تولید (ProductionOrder)
+model ProductionOrder {
+  id          Int      @id @default(autoincrement())
+  number      String   @unique @db.VarChar(30) // PRD-YYYY-0001
+  productId   Int
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Float
+  status      String?
+  notes       String?
+  createdBy   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("production_orders")
+}
+
+// سند خرید (PurchaseDocument)
+model PurchaseDocument {
+  id             Int      @id @default(autoincrement())
+  documentNumber String   @unique @db.VarChar(30) // PUR-YYYY-0001
+  supplierId     Int?
+  supplier       Person?  @relation(fields: [supplierId], references: [id])
+  totalAmount    Float    @default(0)
+  description    String?
+  createdBy      Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("purchase_documents")
+}
+
+// فاکتور فروش (SalesInvoice)
+model SalesInvoice {
+  id            Int      @id @default(autoincrement())
+  invoiceNumber String   @unique @db.VarChar(30) // SI-YYYY-0001
+  invoiceDate   DateTime
+  customerId    Int?
+  customer      Person?  @relation(fields: [customerId], references: [id])
+  totalAmount   Float    @default(0)
+  description   String?
+  createdBy     Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("sales_invoices")
+}
+
+// ==========================================================
+// مدل توالی مرکزی برای تولید شماره‌ها
+// ==========================================================
+model Sequence {
+  id        Int      @id @default(autoincrement())
+  key       String
+  period    String   // مثال: "2025" یا "" برای توالی بدون period
+  last      Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([key, period], name: "key_period")
+}
+
+// ==========================================================
+// Enumها
+// ==========================================================
 enum AccountType {
   asset // دارایی
   liability // بدهی
@@ -462,7 +530,6 @@ enum ChequeStatus {
   canceled // باطل شده
 }
 
-// اثر حرکت انبار
 enum InventoryEffect {
   increase // افزایش موجودی
   decrease // کاهش موجودی

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   AppBar,
@@ -8,8 +8,6 @@ import {
   Box,
   Button,
   Typography,
-  Menu,
-  MenuItem,
   IconButton,
   Drawer,
   List,
@@ -136,22 +134,34 @@ export default function NewHeader() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mobileOpenMenu, setMobileOpenMenu] = useState(null);
 
+  // ref برای detection کلیک بیرون منوها
+  const menuContainerRef = useRef(null);
+
   // مدیریت باز/بسته کردن منوها
   const handleMenuOpen = (sectionTitle) => (event) => {
     if (isMobile) {
-      setMobileOpenMenu(mobileOpenMenu === sectionTitle ? null : sectionTitle);
+      setMobileOpenMenu((prev) => (prev === sectionTitle ? null : sectionTitle));
     } else {
-      setAnchorEl(event.currentTarget);
-      setOpenMenus((prev) => ({
-        ...prev,
-        [sectionTitle]: !prev[sectionTitle],
-      }));
+      // تنها یک منو در یک زمان باز باشد:
+      setOpenMenus((prev) => {
+        const wasOpen = !!prev[sectionTitle];
+        if (wasOpen) {
+          // اگر روی همان منو کلیک شد: ببند
+          setAnchorEl(null);
+          return {};
+        } else {
+          // باز کردن منوی جدید و بستن بقیه
+          setAnchorEl(event.currentTarget);
+          return { [sectionTitle]: true };
+        }
+      });
     }
   };
 
   const handleMenuClose = () => {
     setAnchorEl(null);
     setOpenMenus({});
+    setMobileOpenMenu(null);
   };
 
   const handleNavigate = (path) => {
@@ -159,6 +169,31 @@ export default function NewHeader() {
     handleMenuClose();
     setDrawerOpen(false);
   };
+
+  // بسته شدن منوها هنگام کلیک بیرون (desktop)
+  useEffect(() => {
+    function onDocClick(e) {
+      // اگر menuContainerRef تعریف نشده، کاری نکن
+      if (!menuContainerRef.current) return;
+      // اگر کلیک خارج از کانتینر هدر/منو بود => ببند
+      if (!menuContainerRef.current.contains(e.target)) {
+        handleMenuClose();
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // بستن منو با Escape
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") handleMenuClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // کامپوننت منو برای دسکتاپ
   const DesktopMenu = () => (
@@ -335,6 +370,7 @@ export default function NewHeader() {
   return (
     <>
       <AppBar
+        ref={menuContainerRef}
         position="fixed"
         sx={{
           backgroundColor: "#1a1a2e",

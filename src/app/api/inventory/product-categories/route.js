@@ -1,6 +1,7 @@
 // src/app/api/inventory/product-categories/route.js
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getNextSequenceTx, formatCategoryCode } from "@/lib/codeGenerator";
 
 // GET: دریافت لیست گروه‌های کالا
 export async function GET(request) {
@@ -42,12 +43,10 @@ export async function GET(request) {
 
     console.log("Categories found:", categories.length);
 
-    // اگر هیچ گروهی یافت نشد، یک گروه نمونه ایجاد کن
+    // اگر هیچ گروهی یافت نشد، یک گروه نمونه ایجاد کن (قبلاً فقط لاگ می‌زد)
     if (categories.length === 0) {
-      console.log("No categories found, creating sample data...");
-
-      // بررسی کن که آیا گروه‌های پایه وجود دارند یا خیر
-      const existingCategories = await prisma.productCategory.findMany();
+      console.log("No categories found.");
+      // در صورت نیاز می‌توانید نمونه‌سازی را اینجا اضافه کنید
     }
 
     // برگرداندن آرایه مستقیم
@@ -61,49 +60,62 @@ export async function GET(request) {
   }
 }
 
-// POST: ایجاد گروه کالا جدید
+// POST: ایجاد گروه کالا جدید — کد به صورت اتوماتیک تولید می‌شود
 export async function POST(request) {
   try {
     const data = await request.json();
-
     console.log("Creating product category:", data);
 
-    // بررسی تکراری نبودن کد
-    const duplicate = await prisma.productCategory.findUnique({
-      where: { code: data.code },
-    });
+    const name = data.name?.trim();
+    const description = data.description || "";
+    const parentId = data.parentId ? parseInt(data.parentId) : null;
 
-    if (duplicate) {
-      return NextResponse.json(
-        { error: "کد گروه تکراری است" },
-        { status: 400 }
-      );
+    if (!name) {
+      return NextResponse.json({ error: "نام گروه الزامی است" }, { status: 400 });
     }
 
-    const category = await prisma.productCategory.create({
-      data: {
-        code: data.code,
-        name: data.name,
-        description: data.description,
-        parentId: data.parentId || null,
-      },
-      include: {
-        parent: true,
-        _count: {
-          select: {
-            products: true,
-            children: true,
+    // اگر می‌خواهید تکراری نبودن نام را بررسی کنید (اختیاری)
+    const existingByName = await prisma.productCategory.findFirst({
+      where: { name },
+    });
+    if (existingByName) {
+      return NextResponse.json({ error: "گروهی با این نام قبلاً وجود دارد" }, { status: 400 });
+    }
+
+    // تولید کد به صورت atomically درون یک تراکنش (بدون رزرو پیش از ذخیره)
+    const year = new Date().getFullYear().toString();
+
+    const created = await prisma.$transaction(async (tx) => {
+      const counter = await getNextSequenceTx(tx, "product_category", year);
+      const code = formatCategoryCode(year, counter); // مثال: CAT-2025-0001
+
+      const cat = await tx.productCategory.create({
+        data: {
+          code,
+          name,
+          description,
+          parentId,
+        },
+        include: {
+          parent: true,
+          _count: {
+            select: {
+              products: true,
+              children: true,
+            },
           },
         },
-      },
+      });
+
+      return cat;
     });
 
-    return NextResponse.json(category, { status: 201 });
+    return NextResponse.json(created, { status: 201 });
   } catch (error) {
     console.error("Error creating product category:", error);
-    return NextResponse.json(
-      { error: `خطا در ایجاد گروه کالا: ${error.message}` },
-      { status: 500 }
-    );
+
+    // handle unique constraint violation more politely if needed
+    const msg = error?.message || "Server error";
+    return NextResponse.json({ error: `خطا در ایجاد گروه کالا: ${msg}` }, { status: 500 });
   }
 }

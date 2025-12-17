@@ -1,5 +1,61 @@
 // src/lib/codeGenerator.js
+export async function getNextSequenceTx(tx, key, period) {
+  // خواندن ردیف با قفل FOR UPDATE تا همزمانی کنترل شود
+  const rows = await tx.$queryRawUnsafe(
+    "SELECT id, `last` FROM `Sequence` WHERE `key` = ? AND `period` = ? FOR UPDATE",
+    key,
+    period
+  );
 
+  if (!rows || rows.length === 0) {
+    // ایجاد ردیف جدید با last = 1
+    await tx.$executeRawUnsafe(
+      "INSERT INTO `Sequence` (`key`, `period`, `last`, `updatedAt`) VALUES (?, ?, 1, NOW())",
+      key,
+      period
+    );
+    return 1;
+  } else {
+    const id = rows[0].id;
+    // افزایش atomic مقدار last
+    await tx.$executeRawUnsafe(
+      "UPDATE `Sequence` SET `last` = `last` + 1, `updatedAt` = NOW() WHERE id = ?",
+      id
+    );
+    const newRow = await tx.$queryRawUnsafe(
+      "SELECT `last` FROM `Sequence` WHERE id = ?",
+      id
+    );
+    return Number(newRow[0].last);
+  }
+}
+
+/* Formatters */
+
+// دسته کالا: CAT-YYYY-0001
+export function formatCategoryCode(year, counter, pad = 4) {
+  return `CAT-${String(counter).padStart(pad, "0")}`;
+}
+
+// محصول: عددی ساده 4 رقمی
+export function formatProductCode(counter, pad = 4) {
+  return String(counter).padStart(pad, "0");
+}
+
+// دستور تولید: PRD-YYYY-0001
+export function formatProductionOrderNumber(year, counter, pad = 4) {
+  return `PRD-${year}-${String(counter).padStart(pad, "0")}`;
+}
+
+// خرید مواد: PUR-YYYY-0001
+export function formatPurchaseNumber(year, counter, pad = 4) {
+  return `PUR-${year}-${String(counter).padStart(pad, "0")}`;
+}
+
+// فاکتور فروش: SI-YYYY-0001
+export function formatSalesInvoiceNumber(year, counter, pad = 4) {
+  return `SI-${year}-${String(counter).padStart(pad, "0")}`;
+}
 /**
  * تولید کد جدید بر اساس نوع حساب و والد
  */
