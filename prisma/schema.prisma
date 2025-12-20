@@ -10,7 +10,7 @@ datasource db {
 }
 
 // ==========================================================
-// مدل‌های اصلی (حسابداری)
+// مدل‌های یکپارچه حسابداری و انبارداری
 // ==========================================================
 
 // ۱. حساب کل (AccountCategory)
@@ -56,50 +56,36 @@ model DetailAccount {
   subAccount         SubAccount          @relation(fields: [subAccountId], references: [id])
   balance            Float               @default(0)
   inventoryDocuments InventoryDocument[]
-  // ارتباط با Person (رابطه یک به یک اختیاری)
   person             Person?             @relation("DetailAccountPerson")
-
-  // روابط چک‌ها
-  drawerCheques  Cheque[] @relation("ChequeDrawerDetail")
-  payeeCheques   Cheque[] @relation("ChequePayeeDetail")
-  expenseCheques Cheque[] @relation("ChequeExpenseDetail")
-  bankCheques    Cheque[] @relation("ChequeBankDetail")
-
-  // روابط حسابداری
-  voucherItems VoucherItem[]
-
-  // روابط انبارداری
-  products   Product[] // حساب تفصیلی کالاها
-  warehouses Warehouse[] // حساب تفصیلی انبارها
-  banks      Bank[] // حساب تفصیلی بانک‌ها
-
-  createdAt DateTime @default(now())
+  drawerCheques      Cheque[]            @relation("ChequeDrawerDetail")
+  payeeCheques       Cheque[]            @relation("ChequePayeeDetail")
+  expenseCheques     Cheque[]            @relation("ChequeExpenseDetail")
+  bankCheques        Cheque[]            @relation("ChequeBankDetail")
+  voucherItems       VoucherItem[]
+  products           Product[]
+  warehouses         Warehouse[]
+  banks              Bank[]
+  store              Store? // ارتباط با فروشگاه در سیستم پخش
+  createdAt          DateTime            @default(now())
 
   @@map("detail_accounts")
 }
 
-// ۴. شخص (Person)
+// ۴. شخص (Person) - می‌تواند برای کارمندان، تامین‌کنندگان و ... استفاده شود
 model Person {
-  id      Int        @id @default(autoincrement())
-  name    String     @db.VarChar(100)
-  type    PersonType
-  phone   String?    @db.VarChar(20)
-  email   String?    @db.VarChar(100)
-  address String?
-
-  // ارتباط با حساب تفصیلی (رابطه یک به یک)
-  detailAccount   DetailAccount? @relation("DetailAccountPerson", fields: [detailAccountId], references: [id])
-  detailAccountId Int?           @unique
-
-  // روابط حسابداری
-  voucherItems VoucherItem[]
-  cheques      Cheque[]
-
-  // روابط انبارداری
+  id                 Int                 @id @default(autoincrement())
+  name               String              @db.VarChar(100)
+  type               PersonType
+  phone              String?             @db.VarChar(20)
+  email              String?             @db.VarChar(100)
+  address            String?
+  detailAccount      DetailAccount?      @relation("DetailAccountPerson", fields: [detailAccountId], references: [id])
+  detailAccountId    Int?                @unique
+  voucherItems       VoucherItem[]
+  cheques            Cheque[]
   inventoryDocuments InventoryDocument[]
   inventoryLedgers   InventoryLedger[]
-
-  createdAt DateTime @default(now())
+  createdAt          DateTime            @default(now())
 
   @@map("persons")
 }
@@ -111,14 +97,15 @@ model Voucher {
   voucherDate        DateTime
   description        String?
   totalAmount        Float
-  createdBy          Int?
+  createdById        Int?
+  createdBy          User?               @relation(fields: [createdById], references: [id])
   metadata           Json?               @db.Json
-  // روابط
   items              VoucherItem[]
   cheques            Cheque[]
   inventoryDocuments InventoryDocument[]
-
-  createdAt DateTime @default(now())
+  order              Order? // ارتباط با سفارش از سیستم پخش
+  creditPayment      CreditPayment? // ارتباط با پرداخت مشتری از سیستم پخش
+  createdAt          DateTime            @default(now())
 
   @@map("vouchers")
 }
@@ -137,8 +124,6 @@ model VoucherItem {
   description     String?
   debit           Float          @default(0)
   credit          Float          @default(0)
-
-  // روابط انبارداری
   inventoryLedgers InventoryLedger[]
 
   @@map("voucher_items")
@@ -146,27 +131,23 @@ model VoucherItem {
 
 // ۷. چک (Cheque)
 model Cheque {
-  id           Int          @id @default(autoincrement())
-  chequeNumber String       @db.VarChar(50)
-  bankName     String       @db.VarChar(100)
-  branchName   String?      @db.VarChar(100)
-  amount       Float
-  issueDate    DateTime
-  dueDate      DateTime
-  drawer       String       @db.VarChar(100)
-  payee        String?      @db.VarChar(100)
-  type         ChequeType
-  status       ChequeStatus @default(pending)
-  description  String?
-  issueReason  String?      @db.VarChar(20)
-
-  // حساب‌های معین
-  drawerAccountId Int?
-  drawerAccount   SubAccount? @relation("ChequeDrawer", fields: [drawerAccountId], references: [id], onDelete: SetNull)
-  payeeAccountId  Int?
-  payeeAccount    SubAccount? @relation("ChequePayee", fields: [payeeAccountId], references: [id], onDelete: SetNull)
-
-  // حساب‌های تفصیلی
+  id                     Int            @id @default(autoincrement())
+  chequeNumber           String         @db.VarChar(50)
+  bankName               String         @db.VarChar(100)
+  branchName             String?        @db.VarChar(100)
+  amount                 Float
+  issueDate              DateTime
+  dueDate                DateTime
+  drawer                 String         @db.VarChar(100)
+  payee                  String?        @db.VarChar(100)
+  type                   ChequeType
+  status                 ChequeStatus   @default(pending)
+  description            String?
+  issueReason            String?        @db.VarChar(20)
+  drawerAccountId        Int?
+  drawerAccount          SubAccount?    @relation("ChequeDrawer", fields: [drawerAccountId], references: [id], onDelete: SetNull)
+  payeeAccountId         Int?
+  payeeAccount           SubAccount?    @relation("ChequePayee", fields: [payeeAccountId], references: [id], onDelete: SetNull)
   drawerDetailAccountId  Int?
   drawerDetailAccount    DetailAccount? @relation("ChequeDrawerDetail", fields: [drawerDetailAccountId], references: [id], onDelete: SetNull)
   payeeDetailAccountId   Int?
@@ -175,17 +156,12 @@ model Cheque {
   bankDetailAccount      DetailAccount? @relation("ChequeBankDetail", fields: [bankDetailAccountId], references: [id], onDelete: SetNull)
   expenseDetailAccountId Int?
   expenseDetailAccount   DetailAccount? @relation("ChequeExpenseDetail", fields: [expenseDetailAccountId], references: [id], onDelete: SetNull)
-
-  // ارتباط با شخص
-  personId Int?
-  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
-
-  // ارتباط با سند حسابداری
-  voucherId Int?
-  voucher   Voucher? @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  personId               Int?
+  person                 Person?        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  voucherId              Int?
+  voucher                Voucher?       @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
   @@unique([chequeNumber, type])
   @@map("cheques")
@@ -203,10 +179,6 @@ model Bank {
 
   @@map("banks")
 }
-
-// ==========================================================
-// مدل‌های انبارداری (اصلاح شده)
-// ==========================================================
 
 // ۹. گروه کالا (ProductCategory)
 model ProductCategory {
@@ -235,50 +207,50 @@ model Unit {
   @@map("units")
 }
 
-// ۱۱. کالا (Product)
+// ۱۱. کالا (Product) - ادغام شده
 model Product {
-  id         Int             @id @default(autoincrement())
-  code       String          @unique @db.VarChar(20)
-  name       String          @db.VarChar(200)
-  barcode    String?         @db.VarChar(50)
-  categoryId Int
-  category   ProductCategory @relation(fields: [categoryId], references: [id])
-  unitId     Int
-  unit       Unit            @relation(fields: [unitId], references: [id])
-
-  // قیمت‌های پیش فرض
-  defaultPurchasePrice  Float  @default(0)
-  defaultSalePrice      Float  @default(0)
+  id                    Int             @id @default(autoincrement())
+  code                  String          @unique @db.VarChar(20)
+  name                  String          @db.VarChar(200)
+  barcode               String?         @db.VarChar(50)
+  categoryId            Int
+  category              ProductCategory @relation(fields: [categoryId], references: [id])
+  unitId                Int
+  unit                  Unit            @relation(fields: [unitId], references: [id])
+  defaultPurchasePrice  Float           @default(0)
+  defaultSalePrice      Float           @default(0)
   defaultWholesalePrice Float?
-
-  // محدودیت‌های موجودی
-  minStock Float @default(0)
-  maxStock Float @default(0)
-
-  // حساب تفصیلی مربوطه
-  detailAccountId Int?
-  detailAccount   DetailAccount? @relation(fields: [detailAccountId], references: [id])
-
-  // روابط
-  priceHistory     ProductPriceHistory[]
-  inventoryLedgers InventoryLedger[]
-  stockItems       StockItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  minStock              Float           @default(0)
+  maxStock              Float           @default(0)
+  detailAccountId       Int?
+  detailAccount         DetailAccount?  @relation(fields: [detailAccountId], references: [id])
+  image                 String? // <-- از visit-boot
+  weight                Float? // <-- از visit-boot
+  isActive              Boolean         @default(true) // <-- از visit-boot
+  priceHistory          ProductPriceHistory[]
+  inventoryLedgers      InventoryLedger[]
+  stockItems            StockItem[]
+  orderItems            OrderItem[] // <-- از visit-boot
+  pricingPlanProducts   PricingPlanProduct[] // <-- از visit-boot
+  discountGroupProducts DiscountGroupProduct[] // <-- از visit-boot
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
   @@map("products")
 }
 
-// ۱۲. سابقه قیمت کالا (ProductPriceHistory)
+// ۱۲. سابقه قیمت کالا (ProductPriceHistory) - جایگزین PriceHistory
 model ProductPriceHistory {
   id             Int      @id @default(autoincrement())
-  productId      Int
-  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productCode    String
+  product        Product  @relation(fields: [productCode], references: [code], onDelete: Cascade)
   purchasePrice  Float
   salePrice      Float?
   wholesalePrice Float?
   effectiveDate  DateTime @default(now())
+  reason         String?
+  changedById    Int?
+  changedBy      User?    @relation(fields: [changedById], references: [id])
   createdAt      DateTime @default(now())
 
   @@map("product_price_history")
@@ -286,24 +258,19 @@ model ProductPriceHistory {
 
 // ۱۳. انبار (Warehouse)
 model Warehouse {
-  id          Int     @id @default(autoincrement())
-  code        String  @unique @db.VarChar(10)
-  name        String  @db.VarChar(100)
-  address     String?
-  phone       String? @db.VarChar(20)
-  manager     String? @db.VarChar(100)
-  description String?
-
-  // حساب تفصیلی مربوطه
-  detailAccountId Int?
-  detailAccount   DetailAccount? @relation(fields: [detailAccountId], references: [id])
-
-  // روابط
+  id                 Int                 @id @default(autoincrement())
+  code               String              @unique @db.VarChar(10)
+  name               String              @db.VarChar(100)
+  address            String?
+  phone              String?             @db.VarChar(20)
+  manager            String?             @db.VarChar(100)
+  description        String?
+  detailAccountId    Int?
+  detailAccount      DetailAccount?      @relation(fields: [detailAccountId], references: [id])
   stockItems         StockItem[]
   inventoryLedgers   InventoryLedger[]
   inventoryDocuments InventoryDocument[]
-
-  createdAt DateTime @default(now())
+  createdAt          DateTime            @default(now())
 
   @@map("warehouses")
 }
@@ -318,9 +285,8 @@ model StockItem {
   quantity    Float     @default(0)
   minStock    Float     @default(0)
   maxStock    Float     @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@unique([productId, warehouseId])
   @@map("stock_items")
@@ -341,35 +307,28 @@ model InventoryTransactionType {
 
 // ۱۶. سند انبار (InventoryDocument)
 model InventoryDocument {
-  id             Int                      @id @default(autoincrement())
-  documentNumber String                   @unique @db.VarChar(20)
-  documentDate   DateTime
-  typeId         Int
-  type           InventoryTransactionType @relation(fields: [typeId], references: [id])
-  warehouseId    Int
-  warehouse      Warehouse                @relation(fields: [warehouseId], references: [id])
-
-  // این دو فیلد را نگه دارید (برای سازگاری)
-  personId Int?
-  person   Person? @relation(fields: [personId], references: [id])
-
-  // این فیلد جدید
+  id              Int                      @id @default(autoincrement())
+  documentNumber  String                   @unique @db.VarChar(20)
+  documentDate    DateTime
+  typeId          Int
+  type            InventoryTransactionType @relation(fields: [typeId], references: [id])
+  warehouseId     Int
+  warehouse       Warehouse                @relation(fields: [warehouseId], references: [id])
+  personId        Int?
+  person          Person?                  @relation(fields: [personId], references: [id])
   detailAccountId Int?
-  detailAccount   DetailAccount? @relation(fields: [detailAccountId], references: [id])
-
-  voucherId Int?
-  voucher   Voucher? @relation(fields: [voucherId], references: [id])
-
-  referenceNumber String? @db.VarChar(50)
+  detailAccount   DetailAccount?           @relation(fields: [detailAccountId], references: [id])
+  voucherId       Int?
+  voucher         Voucher?                 @relation(fields: [voucherId], references: [id])
+  referenceNumber String?                  @db.VarChar(50)
   description     String?
-  totalQuantity   Float   @default(0)
-  totalAmount     Float   @default(0)
-
-  // روابط
-  ledgerEntries InventoryLedger[]
-
-  createdBy Int?
-  createdAt DateTime @default(now())
+  totalQuantity   Float                    @default(0)
+  totalAmount     Float                    @default(0)
+  ledgerEntries   InventoryLedger[]
+  createdById     Int?
+  createdBy       User?                    @relation(fields: [createdById], references: [id])
+  order           Order? // ارتباط با سفارش از سیستم پخش
+  createdAt       DateTime                 @default(now())
 
   @@map("inventory_documents")
 }
@@ -385,38 +344,27 @@ model InventoryLedger {
   warehouse       Warehouse         @relation(fields: [warehouseId], references: [id])
   transactionDate DateTime
   reference       String?           @db.VarChar(50)
-
-  // مقادیر
-  quantityIn  Float @default(0)
-  quantityOut Float @default(0)
-  unitPrice   Float @default(0)
-  totalPrice  Float @default(0)
-
-  // موجودی انباشته
-  balanceQuantity Float @default(0)
-  balanceValue    Float @default(0)
-
-  // ارتباط با طرف حساب
-  personId Int?
-  person   Person? @relation(fields: [personId], references: [id])
-
-  // ارتباط با سند حسابداری
-  voucherItemId Int?
-  voucherItem   VoucherItem? @relation(fields: [voucherItemId], references: [id], onDelete: SetNull)
-
-  description String?
-
-  // اضافه کردن metadata برای ذخیره اطلاعات اضافی
-  metadata Json? @db.Json // <-- این خط را اضافه کنید
-
-  createdBy Int?
-  createdAt DateTime @default(now())
+  quantityIn      Float             @default(0)
+  quantityOut     Float             @default(0)
+  unitPrice       Float             @default(0)
+  totalPrice      Float             @default(0)
+  balanceQuantity Float             @default(0)
+  balanceValue    Float             @default(0)
+  personId        Int?
+  person          Person?           @relation(fields: [personId], references: [id])
+  voucherItemId   Int?
+  voucherItem     VoucherItem?      @relation(fields: [voucherItemId], references: [id], onDelete: SetNull)
+  description     String?
+  metadata        Json?             @db.Json
+  createdById     Int?
+  createdBy       User?             @relation(fields: [createdById], references: [id])
+  createdAt       DateTime          @default(now())
 
   @@index([productId, warehouseId, transactionDate])
   @@map("inventory_ledger")
 }
 
-// ۱۸. شمارنده اسناد انبار
+// ۱۸. شمارنده اسناد
 model InventoryCounter {
   id         Int      @id @default(autoincrement())
   prefix     String   @db.VarChar(10)
@@ -431,39 +379,424 @@ model InventoryCounter {
 }
 
 // ==========================================================
-// Enumها
+// مدل‌های پخش مویرگی (visit-boot)
+// ==========================================================
+
+// کاربران سیستم
+model User {
+  id                  Int                   @id @default(autoincrement())
+  username            String                @unique
+  email               String                @unique
+  password            String
+  firstName           String
+  lastName            String
+  phone               String?
+  role                UserRole              @default(SALES_REP)
+  salesRepId          Int?
+  isActive            Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  orders              Order[]
+  salesRep            SalesRep?             @relation(fields: [salesRepId], references: [id])
+  productPriceHistory ProductPriceHistory[]
+  ActivityLog         ActivityLog[]
+  createdVouchers     Voucher[]
+  createdInvDocs      InventoryDocument[]
+  createdInvLedgers   InventoryLedger[]
+
+  @@map("users")
+}
+
+// فروشندگان
+model SalesRep {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  phone     String?
+  email     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+  users     User[]
+
+  @@map("sales_reps")
+}
+
+// فروشگاه‌ها/مشتریان
+model Store {
+  id                 Int                 @id @default(autoincrement())
+  code               String              @unique
+  name               String
+  ownerName          String?
+  phone              String?
+  address            String
+  storeType          StoreType           @default(SUPERMARKET)
+  latitude           Float?
+  longitude          Float?
+  creditEnabled      Boolean             @default(false)
+  creditLimit        Float?
+  creditDays         Int?
+  creditType         CreditType          @default(CASH)
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  orders             Order[]
+  deliveryZone       DeliveryZone?       @relation(fields: [deliveryZoneId], references: [id])
+  deliveryZoneId     Int?
+  route              Route?              @relation(fields: [routeId], references: [id])
+  routeId            Int?
+  deliveries         Delivery[]
+  creditTransactions CreditTransaction[]
+  creditPayments     CreditPayment[]
+  detailAccountId    Int?                @unique // ارتباط با سیستم حسابداری
+  detailAccount      DetailAccount?      @relation(fields: [detailAccountId], references: [id])
+
+  @@map("stores")
+}
+
+// سفارشات
+model Order {
+  id                  Int                  @id @default(autoincrement())
+  storeCode           String
+  userId              Int
+  salesRepId          Int?
+  totalAmount         Float
+  status              OrderStatus          @default(PENDING)
+  notes               String?
+  orderDate           DateTime             @default(now())
+  deliveryDate        DateTime?
+  paymentStatus       PaymentStatus        @default(UNPAID)
+  paymentMethod       OrderPaymentMethod   @default(CASH)
+  cashPaymentDetails  Json?
+  creditDays          Int?
+  pricingPlanId       Int?
+  totalDiscount       Float?               @default(0)
+  finalAmount         Float?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  pricingPlan         PricingPlan?         @relation(fields: [pricingPlanId], references: [id])
+  store               Store                @relation(fields: [storeCode], references: [code])
+  user                User                 @relation(fields: [userId], references: [id])
+  salesRep            SalesRep?            @relation(fields: [salesRepId], references: [id])
+  items               OrderItem[]
+  creditTransactions  CreditTransaction[]
+  voucherId           Int?                 @unique // ارتباط با سند حسابداری
+  voucher             Voucher?             @relation(fields: [voucherId], references: [id])
+  inventoryDocumentId Int?                 @unique // ارتباط با سند انبار
+  inventoryDocument   InventoryDocument?   @relation(fields: [inventoryDocumentId], references: [id])
+
+  @@map("orders")
+}
+
+// آیتم‌های سفارش
+model OrderItem {
+  id          Int     @id @default(autoincrement())
+  orderId     Int
+  productCode String
+  quantity    Int
+  price       Float
+  totalPrice  Float?
+  order       Order   @relation(fields: [orderId], references: [id])
+  product     Product @relation(fields: [productCode], references: [code])
+
+  @@map("order_items")
+}
+
+// مسیرها
+model Route {
+  id          Int      @id @default(autoincrement())
+  name        String
+  driverName  String?
+  vehicleType String?
+  color       String   @default("#6C63FF")
+  isActive    Boolean  @default(true)
+  coordinates Json?
+  area        Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  stores      Store[]
+  deliveries  Delivery[]
+
+  @@map("routes")
+}
+
+// تحویل‌ها
+model Delivery {
+  id           Int            @id @default(autoincrement())
+  routeId      Int
+  storeCode    String
+  deliveryDate DateTime
+  status       DeliveryStatus @default(PENDING)
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  route        Route          @relation(fields: [routeId], references: [id])
+  store        Store          @relation(fields: [storeCode], references: [code])
+
+  @@map("deliveries")
+}
+
+// مناطق تحویل
+model DeliveryZone {
+  id           Int      @id @default(autoincrement())
+  name         String
+  coordinates  Json
+  deliveryCost Float
+  deliveryTime Int
+  color        String   @default("#6C63FF")
+  area         Float?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  stores       Store[]
+
+  @@map("delivery_zones")
+}
+
+// پلن‌های قیمت‌گذاری
+model PricingPlan {
+  id           Int                  @id @default(autoincrement())
+  name         String
+  description  String?
+  isActive     Boolean              @default(true)
+  startDate    DateTime
+  endDate      DateTime?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  planProducts PricingPlanProduct[]
+  orders       Order[]
+
+  @@map("pricing_plans")
+}
+
+// محصولات پلن قیمت‌گذاری
+model PricingPlanProduct {
+  id            Int         @id @default(autoincrement())
+  pricingPlanId Int
+  productCode   String
+  minQuantity   Int
+  discountRate  Float       @default(0)
+  description   String?
+  pricingPlan   PricingPlan @relation(fields: [pricingPlanId], references: [id])
+  product       Product     @relation(fields: [productCode], references: [code])
+
+  @@unique([pricingPlanId, productCode, minQuantity])
+  @@map("pricing_plan_products")
+}
+
+// گروه‌های تخفیف
+model DiscountGroup {
+  id            Int                    @id @default(autoincrement())
+  name          String
+  description   String?
+  isActive      Boolean                @default(true)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  groupProducts DiscountGroupProduct[]
+  groupTiers    DiscountGroupTier[]
+
+  @@map("discount_groups")
+}
+
+// محصولات گروه تخفیف
+model DiscountGroupProduct {
+  id              Int           @id @default(autoincrement())
+  discountGroupId Int
+  productCode     String
+  discountGroup   DiscountGroup @relation(fields: [discountGroupId], references: [id])
+  product         Product       @relation(fields: [productCode], references: [code])
+
+  @@unique([discountGroupId, productCode])
+  @@map("discount_group_products")
+}
+
+// سطوح تخفیف
+model DiscountGroupTier {
+  id              Int           @id @default(autoincrement())
+  discountGroupId Int
+  minQuantity     Int
+  discountRate    Float
+  description     String?
+  discountGroup   DiscountGroup @relation(fields: [discountGroupId], references: [id])
+
+  @@unique([discountGroupId, minQuantity])
+  @@map("discount_group_tiers")
+}
+
+// تراکنش‌های اعتباری
+model CreditTransaction {
+  id           Int                     @id @default(autoincrement())
+  storeId      Int
+  orderId      Int?
+  amount       Float
+  type         CreditTransactionType
+  description  String?
+  dueDate      DateTime?
+  chequeNumber String?
+  status       CreditTransactionStatus @default(PENDING)
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  store        Store                   @relation(fields: [storeId], references: [id])
+  order        Order?                  @relation(fields: [orderId], references: [id])
+
+  @@map("credit_transactions")
+}
+
+// پرداخت‌های اعتباری
+model CreditPayment {
+  id            Int           @id @default(autoincrement())
+  storeId       Int
+  amount        Float
+  paymentDate   DateTime
+  paymentMethod PaymentMethod
+  reference     String?
+  description   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  store         Store         @relation(fields: [storeId], references: [id])
+  voucherId     Int?          @unique // ارتباط با سند حسابداری
+  voucher       Voucher?      @relation(fields: [voucherId], references: [id])
+
+  @@map("credit_payments")
+}
+
+// لاگ فعالیت‌ها
+model ActivityLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  action      String
+  entityType  String
+  entityId    Int?
+  description String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
+}
+
+// تنظیمات سیستم
+model SystemSetting {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// ==========================================================
+// Enumهای مشترک
 // ==========================================================
 
 enum AccountType {
-  asset // دارایی
-  liability // بدهی
-  equity // سرمایه
-  income // درآمد
-  expense // هزینه
+  asset
+  liability
+  equity
+  income
+  expense
 }
 
 enum PersonType {
-  customer // مشتری
-  supplier // تامین کننده
-  employee // کارمند
-  other // سایر
+  customer
+  supplier
+  employee
+  other
 }
 
 enum ChequeType {
-  receivable // دریافتنی
-  payable // پرداختنی
+  receivable
+  payable
 }
 
 enum ChequeStatus {
-  pending // در انتظار
-  collected // وصول شده
-  deposited // در جریان وصول
-  returned // برگشت خورده
-  canceled // باطل شده
+  pending
+  collected
+  deposited
+  returned
+  canceled
 }
 
-// اثر حرکت انبار
 enum InventoryEffect {
-  increase // افزایش موجودی
-  decrease // کاهش موجودی
+  increase
+  decrease
+}
+
+enum UserRole {
+  ADMIN
+  SALES_REP
+  MANAGER
+}
+
+enum StoreType {
+  SUPERMARKET
+  GROCERY
+  CONVENIENCE
+  HYPERMARKET
+  OTHER
+}
+
+enum OrderPaymentMethod {
+  CASH
+  CREDIT
+  CHEQUE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+enum DeliveryStatus {
+  PENDING
+  IN_PROGRESS
+  DELIVERED
+  FAILED
+  RESCHEDULED
+}
+
+enum CreditType {
+  CASH
+  CREDIT
+  CHEQUE
+}
+
+enum CreditTransactionType {
+  INVOICE
+  PAYMENT
+  ADJUSTMENT
+  CHEQUE
+  REFUND
+}
+
+enum CreditTransactionStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+  RETURNED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  CHEQUE
+  OTHER
 }
